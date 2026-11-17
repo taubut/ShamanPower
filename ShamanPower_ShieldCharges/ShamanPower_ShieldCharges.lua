@@ -1663,6 +1663,24 @@ local function itemShield(item)
 	end
 	return nil
 end
+-- (3.0.9.16) Maelstrom Weapon: Ready Reminders' sound at 5 stacks in a fight counts the Cooldown Manager's own
+-- Maelstrom item (ShamanPower_ReadyStacks.lua), so ShamanPower's layout tracks it too, by itself (never asked),
+-- and its icon is hidden as the shields' are
+local MW_IDS = { 408498, 408505 }
+local function infoHas(info, ids)
+	if inIDs(ids, info.spellID) or inIDs(ids, info.overrideSpellID) then return true end
+	if type(info.linkedSpellIDs) == "table" then
+		for _, x in ipairs(info.linkedSpellIDs) do if inIDs(ids, x) then return true end end
+	end
+	return false
+end
+local function itemMaelstrom(item)
+	if not (item.GetCooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return false end
+	local ok, id = pcall(item.GetCooldownID, item)
+	if not ok or not plainNumber(id) then return false end
+	local ok2, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
+	return ok2 and type(info) == "table" and infoHas(info, MW_IDS) or false
+end
 local function shieldEvent(item, up)
 	local w = itemShield(item)
 	if SP.shieldHookDebug then print("ShamanPower debug: Cooldown Manager hook", up and "applied" or "removed", "shield", tostring(w)) end
@@ -1742,7 +1760,8 @@ local function bindShieldHooks()
 					end
 					local w = itemShield(item)
 					if w then have[w] = true end
-					hideShieldItem(item, wanted and w ~= nil and SP.opt ~= nil and SP.opt.cdmHideShieldIcon == true)   -- (only once the player took ShamanPower's setup, or turned the switch on)
+					local mw = w == nil and itemMaelstrom(item)   -- (3.0.9.16) Maelstrom Weapon's item: hidden too
+					hideShieldItem(item, SP.opt ~= nil and SP.opt.cdmHideShieldIcon == true and ((wanted and w ~= nil) or (mw and not SP:IsOff())))   -- (only once the player took ShamanPower's setup, or turned the switch on)
 				end
 			end
 		end
@@ -2143,6 +2162,175 @@ function SP:ShieldGoneLayoutComplete()
 	end
 	return true
 end
+-- (3.0.9.16, the owner's rule) Maelstrom Weapon goes into ShamanPower's Cooldown Manager layout ONLY when the player
+-- turns on Sound for the Maelstrom Weapon reminder: its 5-stack sound in a fight counts the Cooldown Manager's own
+-- Maelstrom item (ShamanPower_ReadyStacks.lua); the stacks themselves draw without it. Then a popup, as Shield
+-- Charges' setup: its button writes the layout and reloads in the same click (a write left for a later reload was
+-- lost: measured 11-16). Nothing at login, nothing on any other change: what the player sets in Cooldown Settings
+-- stays.
+-- Maelstrom Weapon's cooldownID: the shaman set's own row for it (200560, the game's data), checked; else looked
+-- for in every category, wherever the player's layout has put it (only Tracked Buffs was looked in at first, and
+-- once it sat in Not Displayed it wasn't found, so turning the reminder on wrote nothing)
+local MW_CDM_ID = 200560
+local function mwCooldownID()
+	local C = C_CooldownViewer
+	if not (C and C.GetCooldownViewerCooldownInfo) then return nil end
+	local ok, info = pcall(C.GetCooldownViewerCooldownInfo, MW_CDM_ID)
+	if ok and type(info) == "table" and infoHas(info, MW_IDS) then return MW_CDM_ID end
+	if not (C.GetCooldownViewerCategorySet and Enum and type(Enum.CooldownViewerCategory) == "table") then return nil end
+	for _, cat in pairs(Enum.CooldownViewerCategory) do
+		if type(cat) == "number" then
+			local okSet, ids = pcall(C.GetCooldownViewerCategorySet, cat, true)
+			if okSet and type(ids) == "table" then
+				for _, id in ipairs(ids) do
+					if plainNumber(id) then
+						local ok2, i2 = pcall(C.GetCooldownViewerCooldownInfo, id)
+						if ok2 and type(i2) == "table" and infoHas(i2, MW_IDS) then return id end
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+-- ShamanPower's saved layout for this class and spec, and Maelstrom's cooldownID: data, its lists, the ID; or nil
+-- and why
+local function mwLayout()
+	local C = C_CooldownViewer
+	if not (SPCompat and SPCompat.FOREVER and C and C.GetLayoutData and C.SetLayoutData and Enum and Enum.CooldownViewerCategory) then return nil, "no Cooldown Manager on this client" end
+	local mw = mwCooldownID()
+	if not mw then return nil, "Maelstrom Weapon isn't in the Cooldown Manager's list" end
+	local data, err = cdmDecode(C.GetLayoutData())
+	if not (data and data[1] == 5 and type(data[3]) == "table" and type(data[4]) == "table") then return nil, "couldn't read the layouts (" .. tostring(err or (data and data[1])) .. ")" end
+	local tag = cdmTag()
+	local layouts = type(data[3][tag]) == "table" and data[3][tag] or nil
+	if not layouts then return nil, "no layouts for this class and spec (" .. tostring(tag) .. ")" end
+	local id
+	for lid, name in pairs(data[4]) do
+		if name == "ShamanPower" and type(lid) == "number" and type(layouts[lid]) == "table" then id = lid break end
+	end
+	local lists = id and layouts[id][2]
+	if type(lists) ~= "table" then return nil, "no ShamanPower layout for this class and spec" end
+	return data, lists, mw
+end
+-- Maelstrom in Tracked Buffs in ShamanPower's saved layout (no word on it at all: the game's default, Tracked Buffs);
+-- false: not; nil: no ShamanPower layout
+local function mwTracked()
+	local data, lists, mw = mwLayout()
+	if not data then return nil end
+	local TB = Enum.CooldownViewerCategory.TrackedBuff or 2
+	local inAny = false
+	for cat, ids in pairs(lists) do
+		if type(ids) == "table" then
+			for _, cid in ipairs(ids) do
+				if cid == mw then
+					if cat == TB then return true end
+					inAny = true
+				end
+			end
+		end
+	end
+	return not inAny
+end
+-- Maelstrom into Tracked Buffs (on) or Not Displayed (off) in ShamanPower's layout; true when written, else false
+-- and why
+function SP:CdmMaelstromSet(on)
+	local C = C_CooldownViewer
+	local data, lists, mw = mwLayout()
+	if not data then return false, lists end
+	for _, ids in pairs(lists) do
+		if type(ids) == "table" then
+			for i = #ids, 1, -1 do if ids[i] == mw then table.remove(ids, i) end end
+		end
+	end
+	local CAT = Enum.CooldownViewerCategory
+	local dest = (on and (CAT.TrackedBuff or 2)) or (CAT.HiddenPassive or -2)
+	if type(lists[dest]) ~= "table" then lists[dest] = {} end
+	table.insert(lists[dest], mw)
+	local out, e2 = cdmEncode(data)
+	if not out then return false, "couldn't write the layout (" .. tostring(e2) .. ")" end
+	local okSet, e3 = pcall(C.SetLayoutData, out)
+	if not okSet then return false, "the game refused the layout (" .. tostring(e3) .. ")" end
+	if C.GetLayoutData() ~= out then return false, "the game did not keep the layout" end
+	queueBind()
+	return true
+end
+-- the Maelstrom Weapon reminder: on, with Sound on, and Maelstrom Weapon learned
+local function mwEntry()
+	for _, e in ipairs(SP.ReadyReminderSpells or {}) do if e.key == "maelstrom" then return e end end
+end
+local function mwSoundWanted()
+	local e = mwEntry()
+	if not (e and SP.ReadyReminderOn and SP.ReadyReminderOn(e) == true) then return false end
+	if not (SP.ReadyReminderIconOpt and SP:ReadyReminderIconOpt("maelstrom", "soundOnReady")) then return false end
+	local API = SP.ReadyStacksAPI
+	return API ~= nil and API.knows ~= nil and API.knows(e) and true or false
+end
+-- the popup (as Shield Charges' setup): its button puts Maelstrom in ShamanPower's layout (making that layout first,
+-- as the shield setup does, when there is none) and reloads in the same click
+function SP:CdmMaelstromAsk()
+	if not (SPCompat and SPCompat.FOREVER) or InCombatLockdown() or not self.ShowSPDialog then return end
+	local tracked = mwTracked()
+	if tracked == true then return end   -- (in Tracked Buffs already)
+	self:ShowSPDialog({
+		key = "cdmMaelstrom",
+		title = "Maelstrom Weapon Sound in Fights",
+		text = "During a fight, WoW hides your Maelstrom Weapon stacks from addons, so ShamanPower can't tell when you reach 5 and play your sound. WoW's own Cooldown Manager can still see them, so ShamanPower can count them through it and play your sound at 5 stacks, even mid-fight."
+			.. "\n\nThe |cff3FA9F5Set It Up|r Button does this once for you:"
+			.. ((tracked == nil) and "\n\226\128\162 Adds a ShamanPower layout to Cooldown Manager that tracks Lightning Shield, Water Shield and Maelstrom Weapon"
+				or "\n\226\128\162 Adds Maelstrom Weapon to your ShamanPower layout in Cooldown Manager")
+			.. "\n\226\128\162 Hides WoW's own Maelstrom Weapon icon, so you don't see it twice"
+			.. "\n\226\128\162 Reloads your UI",
+		buttons = {
+			{ text = "Set It Up and Reload", onClick = function()
+				local ok, why = true, nil
+				if mwTracked() == nil then ok, why = SP:ShieldGoneSetup() end   -- (no ShamanPower layout yet: made first)
+				if ok then ok, why = SP:CdmMaelstromSet(true) end
+				if ok then
+					if C_UI and C_UI.Reload then C_UI.Reload() elseif ReloadUI then ReloadUI() end
+				else
+					print("|cff0070ddShamanPower|r: couldn't add Maelstrom Weapon to the Cooldown Manager (" .. tostring(why) .. ").")
+				end
+			end },
+			{ text = "Not Now" },
+		},
+	})
+end
+do
+	local f = CreateFrame("Frame")
+	local tries = 0
+	-- the first login after this update: asked once per character, when the reminder already has Sound on (the fix
+	-- for its sound in fights). The layouts are kept per spec, so it waits until the spec is known
+	local function firstLogin()
+		local c = SP.db and SP.db.char
+		if not c or c.cdmMaelstromChecked then return end
+		if InCombatLockdown() or cdmTag() % 10 == 0 then
+			tries = tries + 1
+			if tries < 20 then C_Timer.After(5, firstLogin) end
+			return
+		end
+		c.cdmMaelstromChecked = true
+		if mwSoundWanted() then SP:CdmMaelstromAsk() end
+	end
+	SP.CdmMaelstromFirstLogin = firstLogin   -- (the tests)
+	f:RegisterEvent("PLAYER_LOGIN")
+	f:SetScript("OnEvent", function()
+		if select(2, UnitClass("player")) ~= "SHAMAN" or not (SPCompat and SPCompat.FOREVER) then return end
+		-- Sound turned on for the Maelstrom Weapon reminder (its own menu, or the page's): asked then
+		if SP.ReadyReminderSetIconOpt then
+			hooksecurefunc(SP, "ReadyReminderSetIconOpt", function(_, key, opt, value)
+				if key == "maelstrom" and opt == "soundOnReady" and value and mwSoundWanted() then SP:CdmMaelstromAsk() end
+			end)
+		end
+		if SP.ReadyReminderSetPageOpt then
+			hooksecurefunc(SP, "ReadyReminderSetPageOpt", function(_, opt, value)
+				if opt == "soundOnReady" and value and mwSoundWanted() then SP:CdmMaelstromAsk() end
+			end)
+		end
+		C_Timer.After(3, firstLogin)
+	end)
+end
+
 -- a trace: what each Cooldown Manager item says it carries (ordinary values only; a secret
 -- prints as "secret"), and the shield IDs the hook is looking for
 function SP:ShieldGoneHookDump()

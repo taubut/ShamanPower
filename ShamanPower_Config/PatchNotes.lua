@@ -9,6 +9,22 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.16",
+		date = "in progress",
+		headline = "Maelstrom's sound in fights, and profiles that switch everything",
+		changes = {
+			"Profiles: switching profiles now switches everything: your Ready Reminders and where they sit, Reactive Totems, Tremor Reminder, Expiring Alerts, every other module's settings, your themes and your Call picks. Key bindings stay as they are, and anything a profile brings that would sit mostly off your screen is moved fully onto it.",
+		},
+		fixes = {
+			"Ready Reminders (WoW: Forever): Maelstrom Weapon's sound at 5 stacks didn't play in fights. It plays now. When the sound is on, ShamanPower asks you once to add Maelstrom Weapon to its Cooldown Manager layout and reloads (as Shield Charges' setup does for your shields). WoW's own Maelstrom Weapon icon stays hidden.",
+			"Battlegrounds (WoW: Forever): the \"calling 'GetTexCoord' on bad self\" error could still repeat over and over in battlegrounds such as Alterac Valley. It's gone now.",
+			"Ready Reminders (WoW: Forever): Clearcasting with its Glow Shape on Proc Glow showed a square glow. It shows the Proc Glow now, at its Glow Thickness.",
+			"Quick Totems: at a Size over 50% the two Quick Totems under a totem overlapped each other. They now sit side by side in the middle and reach a little past the totem into your Button Spacing, never into the next totem's.",
+			"Cooldown Bar: with one weapon imbued and its progress bar under or over the icon, the bar only ever filled halfway. It fills all the way now.",
+		},
+		thanks = "Thanks to Mononders, Rakii, Dumb and a player on CurseForge for the reports.",
+	},
+	{
 		v = "3.0.9.15",
 		date = "2026-11-16",
 		headline = "Two fixes: trainer reminders at 60, and Maelstrom's Proc Glow",

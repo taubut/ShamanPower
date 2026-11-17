@@ -1063,8 +1063,18 @@ end
 local function forbidden(x)
 	return type(x) == "table" and x.IsForbidden ~= nil and x:IsForbidden() and true or false
 end
-local function shapeTexture(t, icon)
-	if forbidden(t) or forbidden(icon) then return end
+-- (3.0.9.16, Mononders in Alterac Valley, on 3.0.9.14: the same error again) IsForbidden answers false for a part
+-- that only sits on a forbidden one (it says "explicitly marked"), yet the game refuses every call on that part.
+-- So the shape goes on in a protected call: a refusal of the game's leaves the part as it is; any other error is
+-- still reported
+local function guarded(fn, x, y)
+	local ok, err = pcall(fn, x, y)
+	if ok then return end
+	local s = tostring(err)
+	if s:find("forbidden", 1, true) or s:find("secret", 1, true) then return end
+	geterrorhandler()(err)
+end
+local function shapeTextureNow(t, icon)
 	local shape = shapeOr(texKind[t] or "totem", ownShape[icon])
 	if t == icon then trimArt(t, shape ~= nil) end
 	local file = MASK_FILE[shape]
@@ -1083,8 +1093,11 @@ local function shapeTexture(t, icon)
 	t:AddMaskTexture(m)
 	t.spShapeMask = m
 end
-local function shapeCooldown(cd)
-	if forbidden(cd) then return end
+local function shapeTexture(t, icon)
+	if forbidden(t) or forbidden(icon) then return end
+	guarded(shapeTextureNow, t, icon)
+end
+local function shapeCooldownNow(cd)
 	local k = shapeOr(shapedCd[cd] or "totem", ownShape[cd])
 	if k and MASK_FILE[k] then
 		cd:SetSwipeTexture(MASK_FILE[k])
@@ -1095,6 +1108,10 @@ local function shapeCooldown(cd)
 		if cd.SetUseCircularEdge then cd:SetUseCircularEdge(false) end
 		cd.spShaped = nil
 	end
+end
+local function shapeCooldown(cd)
+	if forbidden(cd) then return end
+	guarded(shapeCooldownNow, cd)
 end
 -- a texture drawn on an icon joins its bar's setting (icon: the region it sits
 -- on; kind: the bar, else the icon's own bar, else the totem bar)

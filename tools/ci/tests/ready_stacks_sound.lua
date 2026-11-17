@@ -1,9 +1,10 @@
 -- client: forever
 -- regime: secrets
 -- (3.0.9.9) Maelstrom Weapon's sound At 5 Stacks: every Ready Reminder's own ready sound (its Sound and Volume),
--- once each time the stacks reach 5. Out of a fight from the count; in a fight from the part the game shows only
--- from 5 stacks. Until 3.0.9.9 the game played it on "Maelstrom Ready!" (408501) with no volume (a Discord report:
--- no sound at 5 stacks).
+-- once each time the stacks reach 5. Out of a fight from the count; in a fight (3.0.9.16) counted from the game's
+-- Cooldown Manager item. Until 3.0.9.9 the game played it on "Maelstrom Ready!" (408501) with no volume (a Discord
+-- report: no sound at 5 stacks); until 3.0.9.16 a part the game shows from 5 stacks was to say when, and in game it
+-- never could (a CurseForge report, 11-16: no sound at 5 stacks).
 local SP = ShamanPower
 local W = __sim.W
 local e
@@ -73,21 +74,48 @@ setStacks(1); __sim.advance(1.2)
 checkEq("sound off: none", (heard(function() setStacks(5) end)), 0)
 SP:ReadyReminderSetIconOpt("maelstrom", "soundOnReady", true)
 
--- in a fight: the count is hidden; the part the game shows from 5 stacks says when
-setStacks(2); __sim.advance(1.2)
+-- in a fight: the count is hidden from addons, and the game runs no script of ours inside its aura buttons
+-- (3.0.9.16, measured: the old part that listened never played). The game's Cooldown Manager calls its Maelstrom
+-- Weapon item when the buff comes on, at each change and when it goes; ShamanPower counts those calls (the owner's
+-- idea, as Shield Charges does with the shields). The item and its viewer stand in for Blizzard's here.
+local CDM_ID, SHIELD_ID = 200560, 200311
+local item = { id = CDM_ID }
+function item:GetCooldownID() return self.id end
+function item:TriggerAuraAppliedAlert() end
+function item:TriggerAuraRemovedAlert() end
+function item:OnUnitAuraUpdatedEvent() end
+function item:SetAlpha() end
+local shield = { id = SHIELD_ID }
+for k, v in pairs(item) do if type(v) == "function" then shield[k] = v end end
+local viewer = { itemFramePool = { EnumerateActive = function() return pairs({ [item] = true, [shield] = true }) end } }
+function viewer:RefreshLayout() end
+local CV, BV = C_CooldownViewer, _G.BuffIconCooldownViewer
+C_CooldownViewer = { GetCooldownViewerCooldownInfo = function(id)
+	if id == CDM_ID then return { spellID = 408498, linkedSpellIDs = { 408505 } } end
+	if id == SHIELD_ID then return { spellID = 324 } end
+end }
+_G.BuffIconCooldownViewer = viewer
+local function cdm(what, it)
+	it = it or item
+	if what == "on" then it:TriggerAuraAppliedAlert() elseif what == "off" then it:TriggerAuraRemovedAlert() else it:OnUnitAuraUpdatedEvent() end
+end
+setStacks(2); __sim.advance(1.2)   -- (out of a fight the count is read: 2, and a fight counts on from there)
 __sim.setCombat(true); __sim.advance(0.2)
-checkEq("in a fight, 3 stacks: no sound", (heard(function() setStacks(3) end)), 0)
-n, vol = heard(function() setStacks(5) end)
+checkEq("in a fight, 3 stacks: no sound", (heard(function() setStacks(3); cdm("up") end)), 0)
+checkEq("in a fight, 4 stacks: no sound", (heard(function() setStacks(4); cdm("up") end)), 0)
+n, vol = heard(function() setStacks(5); cdm("up") end)
 checkEq("in a fight, 5 stacks: one sound", n, 1)
 checkEq("in a fight: at the icon's Volume", vol, 35)
 __sim.advance(1.2)
--- spent at 5, the buff back at 1: the game's part comes up with it for a moment (still set from the last 5)
-checkEq("in a fight, spent: no sound", (heard(function() setStacks(0) end)), 0)
-checkEq("in a fight, the buff back at 1: no sound", (heard(function() setStacks(1); __sim.advance(0.1) end)), 0)
+checkEq("in a fight, a proc at 5: no second sound", (heard(function() cdm("up"); cdm("up") end)), 0)
+checkEq("another item's calls (a shield): nothing", (heard(function() for _ = 1, 6 do cdm("up", shield) end end)), 0)
+checkEq("in a fight, spent: no sound", (heard(function() setStacks(0); cdm("off") end)), 0)
+checkEq("in a fight, the buff back at 1: no sound", (heard(function() setStacks(1); cdm("on") end)), 0)
 __sim.advance(1.2)
-checkEq("in a fight, 5 again: the sound again", (heard(function() setStacks(4); setStacks(5); __sim.advance(0.1) end)), 1)
+checkEq("in a fight, 5 again: the sound again", (heard(function() for s = 2, 5 do setStacks(s); cdm("up") end end)), 1)
 __sim.setCombat(false); __sim.advance(1.2)
 checkEq("the fight over at 5: no second sound for the same 5", (heard(function() setStacks(5) end)), 0)
+C_CooldownViewer, _G.BuffIconCooldownViewer = CV, BV
 
 -- put back
 SP.PlaySoundWithVolume = play

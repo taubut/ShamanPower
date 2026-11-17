@@ -35,6 +35,40 @@ local b = SP.totemButtons and SP.totemButtons[1]
 local icon = b and rawget(b, "icon")
 if icon then check("the totem bar's icons still take the shape", icon.spShapeMask ~= nil or (icon.GetNumMaskTextures and icon:GetNumMaskTextures() > 0)) end
 
+-- (3.0.9.16) Mononders, on 3.0.9.14 in Alterac Valley: the same error, over and over, past that fix. The game's
+-- IsForbidden answers false for a part that only sits on a forbidden one (it says "explicitly marked"), yet every
+-- call on the part is refused. Such a part is left as it is too.
+local function refuse(x)
+	x.IsForbidden = function() return false end
+	for _, m in ipairs({ "GetTexCoord", "SetTexCoord", "AddMaskTexture", "RemoveMaskTexture", "GetParent", "SetSwipeTexture", "SetUseCircularEdge" }) do
+		x[m] = function() error("calling '" .. m .. "' on bad self (Attempt to access forbidden object from code tainted by an AddOn)", 2) end
+	end
+end
+local t2 = host:CreateTexture(nil, "ARTWORK"); t2:SetAllPoints(host); t2:SetTexture(136048)
+SP:ShapeIconTexture(t2, t2, "ready")
+local cd2 = CreateFrame("Cooldown", nil, host)
+SP:ShapeCooldown(cd2, "ready")
+refuse(t2); refuse(cd2)
+o.iconShape = "circle"
+errs = {}
+ok, err = pcall(SP.ApplyIconShapes, SP)
+check("IsForbidden false, every call refused: ApplyIconShapes, no error", ok, tostring(err))
+ok, err = pcall(SP.SetIconShapeOwn, SP, t2, "rounded", cd2)
+check("IsForbidden false, every call refused: its own shape changed, no error", ok, tostring(err))
+checkEq("IsForbidden false, every call refused: nothing handed to the error handler", #errs, 0, errs[1])
+if icon then check("and the totem bar's icons still take the shape", icon.spShapeMask ~= nil or (icon.GetNumMaskTextures and icon:GetNumMaskTextures() > 0)) end
+
+-- a mistake of ShamanPower's own while shaping an icon is still reported (only the game's refusals are quiet)
+local t3 = host:CreateTexture(nil, "ARTWORK"); t3:SetAllPoints(host)
+SP:ShapeIconTexture(t3, t3, "ready")
+t3.AddMaskTexture = function() error("a mistake of our own", 2) end
+errs = {}
+o.iconShapeReady = "rounded"
+ok = pcall(SP.ApplyIconShapes, SP)
+check("our own mistake: still reported", ok and #errs >= 1 and errs[1]:find("a mistake of our own", 1, true) ~= nil, errs[1])
+t3.AddMaskTexture = nil
+o.iconShapeReady = "circle"
+
 o.iconShape, o.iconShapeReady = was[1], was[2]
 SP:ApplyIconShapes()
 geterrorhandler = geh

@@ -706,24 +706,8 @@ local function buildEngine(st, e)
 	E.dimHost = CreateFrame("Frame", nil, st.eng)
 	E.dimHost:SetAllPoints(st); E.dimHost:EnableMouse(false)
 	describe(E, st, e)
-	-- (3.0.9.9) At 5 Stacks' sound in a fight: a part the game shows only from 5 stacks, nothing drawn on
-	-- it. The buff back on you puts the game's button on screen before the part is set for the new count,
-	-- so a part still shown from the last 5 comes up with it: the next frame says which it was.
-	-- (3.0.9.14) The hooks go on frames of our own (Engine:Part, rule.onShow): the game now refuses one on its
-	-- own button. Refused there too, there is no sound in a fight (out of one it still plays: S.Pass).
-	local fiveRule = {
-		from = 5,
-		onButtonShow = function() st.fiveBtnAt = GetTime() end,   -- (the game's button came on screen)
-		onShow = function()
-			if not InCombatLockdown() then return end   -- (out of a fight the count is read: S.Pass)
-			local at = GetTime()
-			C_Timer.After(0, function()
-				if st.fiveBtnAt ~= at then S.AtFive(st) end
-			end)
-		end,
-	}
-	E:Part(fiveRule, function() end)
-	st.fiveRefused = fiveRule.refused or nil
+	-- (3.0.9.16) no part listens for 5 any more: the game runs no script of ours inside its aura button, so in a
+	-- fight it never could. The sound there is counted from the Cooldown Manager (S.UpdateSound)
 	st.engine = E
 	st.glowCombat = nil   -- (the switch below sets the glow containers for this fight state)
 	return not E.failed
@@ -902,6 +886,7 @@ function S.Pass(f, inCombat)
 	local e = f.entry
 	local st = stageOf(f)
 	if not st.want then S.Appearance(f) end
+	S.UpdateSound()
 	watchOn(not inCombat)
 	local show = S.Show(e)
 	local visible = true
@@ -919,6 +904,7 @@ function S.Pass(f, inCombat)
 		end
 		if not inCombat then
 			local n = S.Read(e)
+			if n ~= nil then S.CountFrom(n) end   -- (3.0.9.16) a fight counts on from here (the Cooldown Manager)
 			if n ~= nil then
 				if show == "stacks" then visible = n > 0 elseif show == "five" then visible = n >= 5 end
 			end
@@ -993,6 +979,90 @@ end
 -- hides it, so the moment comes from a part the game shows only from 5 stacks (buildEngine).
 -- Until 3.0.9.9 the game played it on "Maelstrom Ready!" (408501), with no volume, and
 -- players heard nothing (a Discord report).
+-- (3.0.9.16) At 5 Stacks' sound in a fight, counted from the game's Cooldown Manager (the owner's idea: as Shield
+-- Charges uses it for the shields). In a fight the count is hidden from addon code, the game runs no script of ours
+-- inside its aura buttons, and "Maelstrom Ready!" never stays on you (measured 11-16: the game's own sound on it
+-- never played), so nothing says "5". The Cooldown Manager's own Maelstrom Weapon item (Tracked Buffs) runs
+-- TriggerAuraAppliedAlert when the buff comes on (1 stack), OnUnitAuraUpdatedEvent each time it changes, and
+-- TriggerAuraRemovedAlert when it goes (all used, or run out). The stacks only go up one at a time and are all used
+-- at once, so counting those calls gives the count: the 4th change after it came on is 5. Only "the method ran on
+-- the Maelstrom item" is used, never a value out of it. Out of a fight the count is read (S.Pass) and the counting
+-- starts from it. Items are pooled and handed other cooldowns on every layout, so the item is checked again at each
+-- firing and the hooks are bound again after each layout.
+local CDM_VIEWERS = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+local MW_IDS = { [408498] = true, [408505] = true }
+local cdm = { n = nil, have = false, dirty = true, queued = false, fires = 0 }
+local cdmHooked = setmetatable({}, { __mode = "k" })
+local cdmViewers = setmetatable({}, { __mode = "k" })
+local function plainNumber(v) return type(v) == "number" and not (issecretvalue and issecretvalue(v)) end
+local function itemIsMaelstrom(item)
+	if not (item.GetCooldownID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return false end
+	local ok, id = pcall(item.GetCooldownID, item)
+	if not ok or not plainNumber(id) then return false end
+	local ok2, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, id)
+	if not ok2 or type(info) ~= "table" then return false end
+	if (plainNumber(info.spellID) and MW_IDS[info.spellID]) or (plainNumber(info.overrideSpellID) and MW_IDS[info.overrideSpellID]) then return true end
+	if type(info.linkedSpellIDs) == "table" then
+		for _, x in ipairs(info.linkedSpellIDs) do if plainNumber(x) and MW_IDS[x] then return true end end
+	end
+	return false
+end
+local function cdmEvent(item, what)
+	if not InCombatLockdown() or not itemIsMaelstrom(item) then return end   -- (out of a fight the count is read)
+	cdm.fires = cdm.fires + 1
+	if what == "off" then cdm.n = 0
+	elseif what == "on" then cdm.n = 1
+	elseif cdm.n ~= nil and cdm.n < 5 then
+		cdm.n = cdm.n + 1
+		if cdm.n == 5 then
+			for _, st in ipairs(S.stages) do
+				if st.f and st.f.entry and st.f.entry.stacks then S.AtFive(st) end
+			end
+		end
+	end
+end
+local cdmQueue
+local function cdmBind()
+	-- (not on this client: never; the Cooldown Manager's API not there yet: tried again on the next pass)
+	if not (SPCompat and SPCompat.FOREVER) then cdm.dirty = false return end
+	if not (C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo) then return end
+	local have, any = false, false
+	for _, name in ipairs(CDM_VIEWERS) do
+		local v = _G[name]
+		local pool = v and v.itemFramePool
+		if pool and pool.EnumerateActive then
+			any = true
+			if not cdmViewers[v] then
+				cdmViewers[v] = true
+				hooksecurefunc(v, "RefreshLayout", cdmQueue)
+				-- a layout change with the same item count hands items other cooldowns in place (no RefreshLayout)
+				if v.OnCooldownDataChanged then hooksecurefunc(v, "OnCooldownDataChanged", cdmQueue) end
+			end
+			local ok, iter, st, init = pcall(pool.EnumerateActive, pool)
+			if ok and type(iter) == "function" then
+				for item in iter, st, init do
+					if not cdmHooked[item] and item.TriggerAuraAppliedAlert and item.TriggerAuraRemovedAlert and item.OnUnitAuraUpdatedEvent then
+						cdmHooked[item] = true
+						hooksecurefunc(item, "TriggerAuraAppliedAlert", function(it) cdmEvent(it, "on") end)
+						hooksecurefunc(item, "TriggerAuraRemovedAlert", function(it) cdmEvent(it, "off") end)
+						hooksecurefunc(item, "OnUnitAuraUpdatedEvent", function(it) cdmEvent(it, "up") end)
+					end
+					if not have and itemIsMaelstrom(item) then have = true end
+				end
+			end
+		end
+	end
+	cdm.have = have
+	cdm.dirty = not any   -- (no viewer yet: tried again on the next pass)
+end
+cdmQueue = function()
+	if cdm.queued then return end
+	cdm.queued = true
+	C_Timer.After(0, function() cdm.queued = false; cdmBind() end)
+end
+function S.UpdateSound() if cdm.dirty then cdmBind() end end
+function S.CountFrom(n) cdm.n = n end
+
 local fiveCount = 0
 function S.AtFive(st)
 	if st.reshowing or not st.f then return end   -- (the reminder back on screen at 5: no new 5)
@@ -1006,7 +1076,6 @@ function S.FiveCrossed(st, n)
 	if at5 and st.fiveWas == false then S.AtFive(st) end
 	st.fiveWas = at5
 end
-function S.UpdateSound() end   -- (nothing to register any more; kept for its callers)
 
 -- /spdiag ready: how the stacks are drawn (never what they are)
 function S.Diag(f)
@@ -1015,9 +1084,9 @@ function S.Diag(f)
 	return string.format("stacks look=%s show=%s left=%s mode=%s containers=%s failed=%s waiting=%s sound=%s%s",
 		f and S.Look(f.entry) or "-", f and S.Show(f.entry) or "-", f and S.Left(f.entry) or "-", tostring(st and st.mode),
 		tostring(E and #E.list or 0), tostring(E and E.failed or false), tostring(st ~= nil and st.engineSig ~= st.want),
-		"at 5 x" .. fiveCount, (st and st.fiveRefused) and " (no sound in a fight: the game refused its hook)" or "")
+		"at 5 x" .. fiveCount, (" cdm item=%s n=%s fires=%d"):format(tostring(cdm.have), tostring(cdm.n), cdm.fires))
 end
 
 -- the reminder is off screen (switched off, Only In Combat out of combat, the module off):
 -- nothing to read
-function S.Idle() watchOn(false) end
+function S.Idle() watchOn(false); S.UpdateSound() end

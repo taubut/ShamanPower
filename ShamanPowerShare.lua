@@ -267,6 +267,7 @@ function SP:ImportShare(str, mode, profileName)
 	call("UpdateLoadoutBar")
 	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
 	if reg then reg:NotifyChange("ShamanPower") end
+	if self.KeepProfileSetup then self:KeepProfileSetup() end   -- (3.0.9.16) what came in belongs to this profile
 	return true, profileName
 end
 
@@ -418,5 +419,206 @@ do
 	for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED",
 		"ACTIVE_TALENT_GROUP_CHANGED" }) do
 		pcall(ef.RegisterEvent, ef, e)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- (3.0.9.16) A profile is the whole setup. Every setting ShamanPower saves outside the profile itself (each module's
+-- own table: Ready Reminders, Reactive Totems, Range, Tremor, Expiring Alerts, Earth Shield Tracker, Target Tracker,
+-- Raid Cooldowns, Loadouts, Auto Loadout Groups and the assignments; your themes; the Call of the Elements page the
+-- bar is on and its picks) belongs to the profile it was set on. Switching profile (any way: the Profiles page,
+-- Profile by Spec, an import, Copy From) puts the setup you leave away with its profile and brings the new
+-- profile's back, so Restoration can have its Ready Reminders one way and Enhancement another. Before, only the
+-- profile itself switched: an import's Ready Reminders stayed on every profile (the owner, 11-16). Kept account-wide
+-- in db.global.profileSetups, by profile name. Only bookkeeping stays with the character or account: Profile by
+-- Spec's own picks, the measured totem durations, what has been seen, backups, support saves, the error log.
+-- ---------------------------------------------------------------------------
+do
+	local GLOBAL_KEYS = { "themes", "themesGone" }              -- db.global: your themes
+	local CHAR_KEYS = { "callPage", "callKept", "callEarly" }   -- db.char: the bar's Call and its picks
+	local busy = false
+
+	local function store()
+		local g = SP.db.global
+		if type(g.profileSetups) ~= "table" then g.profileSetups = {} end
+		return g.profileSetups
+	end
+	-- the setup on screen now, copied
+	local function capture()
+		local t = { sv = {}, global = {}, char = {} }
+		for _, name in ipairs(EXTRA_SVARS) do
+			if type(_G[name]) == "table" then t.sv[name] = CleanCopy(_G[name]) end
+		end
+		local g, c = SP.db.global, SP.db.char
+		for _, k in ipairs(GLOBAL_KEYS) do t.global[k] = CleanCopy(g[k]) end
+		for _, k in ipairs(CHAR_KEYS) do t.char[k] = CleanCopy(c[k]) end
+		return t
+	end
+	-- a kept setup put back in place (each table refilled where it is: whatever holds it sees the new one)
+	local function putBack(t)
+		for _, name in ipairs(EXTRA_SVARS) do
+			local saved = t.sv and t.sv[name]
+			if type(saved) == "table" then
+				local copy = CleanCopy(saved)
+				local live = _G[name]
+				if type(live) == "table" then
+					wipe(live)
+					for k, v in pairs(copy) do live[k] = v end
+				else
+					_G[name] = copy
+				end
+			end
+		end
+		local g, c = SP.db.global, SP.db.char
+		for _, k in ipairs(GLOBAL_KEYS) do g[k] = CleanCopy(t.global and t.global[k]) end
+		for _, k in ipairs(CHAR_KEYS) do c[k] = CleanCopy(t.char and t.char[k]) end
+	end
+	-- everything drawn again from the setup now in place: all that answers a profile change (the bars, looks,
+	-- themes, loadouts, Calls), then the modules with their own tables (as an import does)
+	local function redraw(db)
+		busy = true
+		pcall(db.callbacks.Fire, db.callbacks, "OnProfileChanged", db, db:GetCurrentProfile())
+		busy = false
+		for _, fn in ipairs({ "UpdateCooldownBar", "UpdateCooldownBarScale", "UpdateCooldownBarFrame",
+			"UpdateCooldownBarProgressBars", "UpdateCooldownBarOpacity", "UpdateCooldownBarFlyoutEnabled",
+			"UpdateTotemBarFrame", "UpdateMiniTotemBar", "UpdateReactiveTotemAppearance", "UpdateTremorReminderAppearance",
+			"UpdateAllReadyReminderAppearance", "UpdateReadyReminders", "TargetTrackerRefresh", "UpdateSPRangeFrame",
+			"UpdateSPRangeBorder", "UpdateLoadoutBar" }) do
+			if SP[fn] then pcall(SP[fn], SP) end
+		end
+		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg:NotifyChange("ShamanPower") end
+	end
+
+	-- the setup on screen now, kept as this profile's (an import calls it; so does logging out), and nothing of it
+	-- left off the screen (an import's spots were saved on someone else's screen)
+	function SP:KeepProfileSetup()
+		if not (SP.db and SP.db.global) then return end
+		store()[SP.db:GetCurrentProfile()] = capture()
+		if SP.KeepOnScreen then SP:KeepOnScreen() end
+	end
+	function SP:ProfileSetupOf(name) return SP.db and SP.db.global and type(SP.db.global.profileSetups) == "table"
+		and SP.db.global.profileSetups[name] or nil end
+
+	local function install()
+		local db = SP.db
+		if not db or db.spSetupWrapped then return end
+		db.spSetupWrapped = true
+		local setProfile, copyProfile = db.SetProfile, db.CopyProfile
+		db.SetProfile = function(self, name)
+			local from = self:GetCurrentProfile()
+			if busy or name == from then return setProfile(self, name) end
+			store()[from] = capture()                      -- the setup you leave, kept with its profile
+			local r = setProfile(self, name)               -- the profile itself (its OnProfileChanged runs)
+			local t = store()[name]
+			if t then putBack(t); redraw(self) end         -- and the rest of its setup, as it was left
+			if SP.KeepOnScreen then SP:KeepOnScreen() end
+			return r                                       -- (a profile never seen with this: keeps what is on screen)
+		end
+		db.CopyProfile = function(self, name, silent)
+			local r = copyProfile(self, name, silent)      -- Copy From: that profile's settings into this one
+			local t = store()[name]
+			if t then putBack(t); redraw(self) end         -- and the rest of its setup with them
+			store()[self:GetCurrentProfile()] = capture()
+			if SP.KeepOnScreen then SP:KeepOnScreen() end
+			return r
+		end
+	end
+	local ev = CreateFrame("Frame")
+	ev:RegisterEvent("PLAYER_LOGIN")
+	ev:RegisterEvent("PLAYER_LOGOUT")
+	ev:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_LOGIN" then install()
+		elseif SP.db and SP.db.spSetupWrapped then SP:KeepProfileSetup() end   -- (logging out, or a /reload)
+	end)
+	install()
+end
+
+-- ---------------------------------------------------------------------------
+-- (3.0.9.16) Nothing left off the screen after a profile switch or an import: a spot saved on another screen (a
+-- code someone made at another resolution or UI scale) can land past its edge. The places the game does not keep
+-- on the screen itself (the totem bar, the cooldown bar on its own, Tremor Reminder, each shield, the Raid
+-- Cooldowns caller buttons; everything else is clamped to the screen) are looked at once they are drawn. One more
+-- than half off the screen is moved fully onto it and its spot saved the way a drag saves it. A spot only a little
+-- past an edge (put there by hand) is left alone. Never in a fight (they hold the bar's buttons): after it.
+-- ---------------------------------------------------------------------------
+do
+	local waiting = false
+	local function uiRect(f)
+		if not (f and f.GetRect and f:IsShown()) then return nil end
+		local l, b, w, h = f:GetRect()
+		if not (l and b and w and h) or w <= 1 or h <= 1 then return nil end
+		local k = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+		return l * k, b * k, (l + w) * k, (b + h) * k
+	end
+	-- each place: its frame that holds the spot, the frames that show it, and how its spot is saved
+	local function places()
+		local out = {}
+		local root = _G.ShamanPowerFrame
+		if root then
+			local parts = { _G.ShamanPowerAuto }
+			for e = 1, 4 do parts[#parts + 1] = SP.totemButtons and SP.totemButtons[e] end
+			out[#out + 1] = { root = root, parts = parts, save = function() SP:SaveFramePosition(root) end }
+		end
+		local bar = SP.cooldownBar
+		local rel = bar and bar:GetNumPoints() > 0 and select(2, bar:GetPoint(1))
+		if bar and (rel == nil or rel == UIParent) then   -- (on its own; fixed to the totem bar it moves with it)
+			out[#out + 1] = { root = bar, parts = { bar }, save = function()
+				SP.opt.cooldownBarPosition = SP:SavePositionRecord(bar)
+				SP.opt.cooldownBarPoint, SP.opt.cooldownBarRelPoint = nil, nil
+				SP.opt.cooldownBarPosX, SP.opt.cooldownBarPosY = nil, nil
+			end }
+		end
+		local function byDrag(f)   -- its own drop saves its spot from where it is
+			if f then out[#out + 1] = { root = f, parts = { f }, save = function()
+				local fn = f:GetScript("OnDragStop")
+				if fn then pcall(fn, f) end
+			end } end
+		end
+		byDrag(_G.ShamanPowerTremorReminderFrame)
+		for _, f in pairs(SP.shieldChargeFrames or {}) do byDrag(f) end
+		byDrag(SP.callerButtonFrame)
+		return out
+	end
+	local function pull()
+		local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+		for _, pl in ipairs(places()) do
+			local l, b, r, t
+			for _, f in ipairs(pl.parts) do
+				local fl, fb, fr, ft = uiRect(f)
+				if fl then
+					l, b = math.min(l or fl, fl), math.min(b or fb, fb)
+					r, t = math.max(r or fr, fr), math.max(t or ft, ft)
+				end
+			end
+			if l and pl.root:GetNumPoints() > 0 then
+				local area = (r - l) * (t - b)
+				local seen = math.max(0, math.min(r, W) - math.max(l, 0)) * math.max(0, math.min(t, H) - math.max(b, 0))
+				if area > 0 and seen < area * 0.5 then
+					local dx = (l < 0 and -l) or (r > W and math.max(W - r, -l)) or 0
+					local dy = (b < 0 and -b) or (t > H and math.max(H - t, -b)) or 0
+					local k = pl.root:GetEffectiveScale() / UIParent:GetEffectiveScale()
+					local p, rel, rp, x, y = pl.root:GetPoint(1)
+					pl.root:ClearAllPoints()
+					pl.root:SetPoint(p, rel, rp, (x or 0) + dx / k, (y or 0) + dy / k)
+					pcall(pl.save)
+				end
+			end
+		end
+	end
+	local ev = CreateFrame("Frame")
+	ev:SetScript("OnEvent", function(self)
+		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		C_Timer.After(0.5, function() waiting = false; SP:KeepOnScreen() end)
+	end)
+	function SP:KeepOnScreen()
+		if waiting then return end
+		waiting = true
+		if InCombatLockdown() then ev:RegisterEvent("PLAYER_REGEN_ENABLED") return end
+		C_Timer.After(0.5, function()   -- (once the new setup is drawn and laid out)
+			if InCombatLockdown() then ev:RegisterEvent("PLAYER_REGEN_ENABLED") return end
+			waiting = false
+			pull()
+		end)
 	end
 end

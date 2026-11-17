@@ -12549,7 +12549,10 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 			bar:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
 		end
 	else
-		local progressWidth = math.max((buttonWidth / 2) * percent, 1)
+		-- (3.0.9.16) as wide as its own bar: half the button when both hands show one, the whole button for one
+		-- hand (Dumb, Discord: one imbue at 59 of 60 minutes filled only half its bar)
+		local full = (ctx.hasMain and ctx.hasOff) and (buttonWidth / 2) or buttonWidth
+		local progressWidth = math.max(full * percent, 1)
 		bar:SetSize(progressWidth, barHeight)
 		bar:SetPoint("LEFT", bg, "LEFT", 0, 0)
 	end

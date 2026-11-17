@@ -50,7 +50,8 @@ local function signature(e)
 		tostring(IconOpt(e, "hideBackground")), tostring(IconOpt(e, "hideBorder")),
 		tostring(bc and (bc.r or bc[1])) .. tostring(bc and (bc.g or bc[2])) .. tostring(bc and (bc.b or bc[3])),
 		tostring(IconOpt(e, "readyEffect") or "glow"), tostring(IconOpt(e, "glowShape") or (SP.opt and SP.opt.glowShape)),
-		tostring(gc and (gc.r or gc[1])) .. tostring(gc and (gc.g or gc[2])) .. tostring(gc and (gc.b or gc[3])) }, "|")
+		tostring(gc and (gc.r or gc[1])) .. tostring(gc and (gc.g or gc[2])) .. tostring(gc and (gc.b or gc[3])),
+		tostring(IconOpt(e, "glowThick")) }, "|")   -- (3.0.9.16: Proc Glow's Glow Thickness)
 end
 
 -- the reminder's look on `host` (the game's button, or a frame of ours): backing, icon, edge,
@@ -71,14 +72,25 @@ local function draw(host, e)
 	parts.time:Hide()
 	local fx = IconOpt(e, "readyEffect") or "glow"
 	local gr, gg, gb = color(IconOpt(e, "glowColor"), 0.3, 0.8, 1.0)
-	if fx == "glow" or fx == "both" then
+	local shape = IconOpt(e, "glowShape") or (SP.opt and SP.opt.glowShape) or "default"
+	if (fx == "glow" or fx == "both") and shape == "proc" and SP.ProcGlow_Plain and SP.ProcGlowOptions then
+		-- (3.0.9.16) Proc Glow: the ring, in the Glow Color and at the Glow Thickness its menu offers (it drew the
+		-- square glow before). Made on a frame of ours the size of the icon, never a pooled one moved in: the game
+		-- refuses that on its aura button (the 3.0.9.15 Maelstrom fix)
+		local c = { gr, gg, gb, 1 }
+		if gr > 0.98 and gg > 0.98 and gb > 0.98 then c = nil end   -- (white: the game's gold)
+		local gf = CreateFrame("Frame", nil, host)
+		gf:SetSize(s, s); gf:SetPoint("CENTER", host, "CENTER", 0, 0)
+		gf:SetFrameLevel(parts.art:GetFrameLevel() + 2); gf:EnableMouse(false)
+		SP.ProcGlow_Plain(gf, SP:ProcGlowOptions(gf, c, "rp", true, IconOpt(e, "glowThick") or SP.PROC_GLOW_OUT or 0.2))
+		parts.glow = gf
+	elseif fx == "glow" or fx == "both" then
 		local gf = CreateFrame("Frame", nil, host)
 		gf:SetAllPoints(host); gf:SetFrameLevel(parts.art:GetFrameLevel() + 2); gf:EnableMouse(false)
 		local t = gf:CreateTexture(nil, "OVERLAY", nil, 1)
 		t:SetPoint("TOPLEFT", host, "TOPLEFT", -10, 10); t:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 10, -10)
 		t:SetTexture(GLOW_FILE)
 		t:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
-		local shape = IconOpt(e, "glowShape") or (SP.opt and SP.opt.glowShape) or "default"
 		if shape ~= "proc" and SP.PaintGlowShape then SP:PaintGlowShape(t, shape) end
 		t:SetBlendMode("ADD")
 		t:SetVertexColor(gr, gg, gb)

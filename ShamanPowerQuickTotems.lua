@@ -310,6 +310,19 @@ local function placeElement(element, want)
 	local across = (side == "above" or side == "below")
 	local edge = btn and (across and btn:GetWidth() or btn:GetHeight()) or 0
 	local size = math.max(6, math.floor(edge * ((O() and O().quickTotemSize) or 0.5) + 0.5))
+	-- (3.0.9.16) over half the button, two side by side are wider than it, so at the corners they overlapped (Rakii,
+	-- 60%). Then the pair sits in the middle of the button, 1 px apart, and spreads past its edges, but never more
+	-- than half the Button Spacing on each side (never into the next button's pair); with less room, as big as fits.
+	-- Up to half (the corners) nothing changes.
+	local mid = false
+	if 2 * (size - 1) + 1 > edge then
+		-- (the bar's real gap between buttons: Button Spacing, plus the party dots' room where they sit between them)
+		local pad = (SP.TotemBarSpacing and SP:TotemBarSpacing()) or (O() and O().totemBarPadding) or 2
+		pad = math.max(0, math.floor(tonumber(pad) or 2))
+		local most = math.floor((edge + 2 * math.floor(pad / 2) - 1) / 2)   -- (each one's widest)
+		if size - 1 > most then size = math.max(6, most + 1) end
+		mid = 2 * (size - 1) + 1 > edge
+	end
 	-- on the flyout's side: the tab's room kept, in and out of a fight (A110 Q3)
 	local fs = side and flyoutSide(element, btn)
 	local tab = (fs and FLY[side] == fs and SP.FlyoutTabRoom) and SP:FlyoutTabRoom(btn, fs) or 0
@@ -337,7 +350,17 @@ local function placeElement(element, want)
 				q:SetFrameLevel(btn:GetFrameLevel() + 3)
 				q:SetSize(size - 1, size - 1)   -- (a 1 px gap between the two)
 				q:ClearAllPoints()
-				if side == "above" then
+				if mid then   -- (the pair in the middle, 1 px apart: slot 1 left of it or above it)
+					if side == "above" then
+						if slot == 1 then q:SetPoint("BOTTOMRIGHT", btn, "TOP", 0, gap) else q:SetPoint("BOTTOMLEFT", btn, "TOP", 1, gap) end
+					elseif side == "below" then
+						if slot == 1 then q:SetPoint("TOPRIGHT", btn, "BOTTOM", 0, -gap) else q:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -gap) end
+					elseif side == "left" then
+						if slot == 1 then q:SetPoint("BOTTOMRIGHT", btn, "LEFT", -gap, 1) else q:SetPoint("TOPRIGHT", btn, "LEFT", -gap, 0) end
+					else
+						if slot == 1 then q:SetPoint("BOTTOMLEFT", btn, "RIGHT", gap, 1) else q:SetPoint("TOPLEFT", btn, "RIGHT", gap, 0) end
+					end
+				elseif side == "above" then
 					if slot == 1 then q:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, gap) else q:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, gap) end
 				elseif side == "below" then
 					if slot == 1 then q:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -gap) else q:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -gap) end

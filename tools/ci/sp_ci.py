@@ -310,6 +310,9 @@ def step_tests(tree, client, only=None):
         # "-- regime: aurasounds": WoW: Forever's C_UnitAuras.AddAuraSound in the sim (the game's own aura sounds)
         if re.search(r"--\s*regime:\s*aurasounds", src):
             env = dict(env or os.environ, SP_SIM_AURASOUND="1")
+        # "-- regime: gameparts": the sim refuses what WoW: Forever refuses on its aura buttons (SP_SIM_GAMEPARTS)
+        if re.search(r"--\s*regime:\s*gameparts", src):
+            env = dict(env or os.environ, SP_SIM_GAMEPARTS="1")
         summary, errors, raw = sim(client, tree, harness + "\n" + src, env=env)
         if summary and summary.startswith("SPCI|skip|"):
             results.append("  skip  %-18s %s" % (name, summary.split("|", 2)[2]))
