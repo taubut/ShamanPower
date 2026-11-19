@@ -64,18 +64,35 @@ local SPOT = {           -- point -> the offset's direction in from that spot
 	BOTTOMLEFT = { INSET, INSET }, BOTTOM = { 0, INSET }, BOTTOMRIGHT = { -INSET, INSET },
 }
 
--- the frames: Blizzard's party and raid frames, by name (pets never)
+-- the frames: Blizzard's party and raid frames, by name (pets never): { name, kind }
+local FRAMES
+local function frameList()
+	if FRAMES then return FRAMES end
+	FRAMES = {}
+	for i = 1, 5 do FRAMES[#FRAMES + 1] = { "CompactPartyFrameMember" .. i, "party" } end
+	for i = 1, 40 do FRAMES[#FRAMES + 1] = { "CompactRaidFrame" .. i, "raid" } end
+	for g = 1, 8 do
+		for m = 1, 5 do FRAMES[#FRAMES + 1] = { "CompactRaidGroup" .. g .. "Member" .. m, "raid" } end
+	end
+	return FRAMES
+end
+
+-- (3.0.9.18, denko on Discord, 11-19, in dungeons: "calling '?' on bad self (Attempt to access forbidden object from code tainted
+-- by an AddOn)") the game's nameplates go through CompactUnitFrame_SetUnit too, forbidden ones included (Forever's
+-- Blizzard_NamePlates: FORBIDDEN_NAME_PLATE_CREATED), and a forbidden frame refuses every call, GetName too. So a frame
+-- handed over is never asked anything: it's one of ours if it IS one of the game's party or raid frames
 local function kindOf(frame)
-	local name = frame and frame.GetName and frame:GetName()
-	if type(name) ~= "string" then return nil end
-	if name:match("^CompactPartyFrameMember%d+$") then return "party" end
-	if name:match("^CompactRaidFrame%d+$") or name:match("^CompactRaidGroup%d+Member%d+$") then return "raid" end
+	if not frame then return nil end
+	for _, e in ipairs(frameList()) do
+		if _G[e[1]] == frame then return e[2] end
+	end
 	return nil
 end
 
 -- recs[frame] = { frame, kind, parts = { [key] = { host, container, sig, unit, boundSig, failed, timeText } } }
 local H = { recs = setmetatable({}, { __mode = "k" }), pending = false, ticker = nil }
 SP.HealingTrackerState = H   -- (tests and the support code)
+H.kindOf = kindOf            -- (tests: the hook's check; the sim has no CompactUnitFrame_SetUnit)
 
 local function locked()
 	if InCombatLockdown() then return true end
@@ -201,8 +218,7 @@ local function hidePart(part)
 end
 
 -- one frame brought up to date: each buff's slot made, placed, bound to the frame's unit, shown or not
-local function sync(frame, sv)
-	local kind = kindOf(frame)
+local function sync(frame, sv, kind)
 	if not kind then return end
 	local rec = H.recs[frame]
 	local frameOn = sv.enabled == true and sv[kind] ~= false
@@ -233,18 +249,6 @@ local function sync(frame, sv)
 	end
 end
 
-local FRAME_NAMES
-local function frameNames()
-	if FRAME_NAMES then return FRAME_NAMES end
-	FRAME_NAMES = {}
-	for i = 1, 5 do FRAME_NAMES[#FRAME_NAMES + 1] = "CompactPartyFrameMember" .. i end
-	for i = 1, 40 do FRAME_NAMES[#FRAME_NAMES + 1] = "CompactRaidFrame" .. i end
-	for g = 1, 8 do
-		for m = 1, 5 do FRAME_NAMES[#FRAME_NAMES + 1] = "CompactRaidGroup" .. g .. "Member" .. m end
-	end
-	return FRAME_NAMES
-end
-
 local ev = CreateFrame("Frame")
 
 -- everything brought up to date; in a fight (or while the game hides auras) it waits
@@ -265,12 +269,12 @@ function SP:UpdateHealingTracker()
 	ev:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	if H.ticker then H.ticker:Cancel() H.ticker = nil end
 	local seen = {}
-	for _, name in ipairs(frameNames()) do
-		local f = _G[name]
-		if f then seen[f] = true; sync(f, sv) end
+	for _, e in ipairs(frameList()) do
+		local f = _G[e[1]]
+		if f then seen[f] = true; sync(f, sv, e[2]) end
 	end
-	for f in pairs(H.recs) do   -- (a frame made under another name: kept up to date as well)
-		if not seen[f] then sync(f, sv) end
+	for f, rec in pairs(H.recs) do   -- (a frame made under another name: kept up to date as well)
+		if not seen[f] then sync(f, sv, rec.kind) end
 	end
 end
 

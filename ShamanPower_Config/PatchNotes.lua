@@ -9,6 +9,15 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.18",
+		date = "2026-11-19",
+		headline = "A fix for an error in dungeons",
+		fixes = {
+			"Frame Buff Indicators (WoW: Forever): in dungeons an error could show over and over (\"calling '?' on bad self (Attempt to access forbidden object from code tainted by an AddOn)\"), even with Frame Buff Indicators off. It's gone, and the indicators still show on your party and raid frames.",
+		},
+		thanks = "Thanks to denko for the report.",
+	},
+	{
 		v = "3.0.9.17",
 		date = "2026-11-19",
 		headline = "Totem ranks, Windfury Proc and Frame Buff Indicators",

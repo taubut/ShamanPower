@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## v3.0.9.18 (2026-11-19)
+
+### Fixes
+- **Frame Buff Indicators (WoW: Forever):** in dungeons an error could show over and over ("calling '?' on bad self (Attempt to access forbidden object from code tainted by an AddOn)"), even with Frame Buff Indicators off. It's gone, and the indicators still show on your party and raid frames.
+
+### Thanks
+- Thanks to denko for the report.
+
 ## v3.0.9.17 (2026-11-19)
 
 ### After updating
