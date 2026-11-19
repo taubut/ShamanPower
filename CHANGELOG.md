@@ -19,11 +19,12 @@
 - **Call of the Elements (WoW: Forever):** it could drop Searing Totem and Windfury Totem at rank 1 when you'd set them up before learning a higher rank. It always drops your highest rank now, on all three Calls.
 - **Ready Reminders (WoW: Forever):** Maelstrom Weapon's sound at 5 stacks stopped after Shield Charges' setup reloaded your game (for example after you learned Water Shield), because the setup took Maelstrom Weapon out of ShamanPower's Cooldown Manager layout. It stays in now.
 - **Totem Bar:** a flyout could stay out after your mouse left the bar across your Quick Totems. It closes now.
+- **Totem Range Tracker:** Unlock UI and the settings preview showed the tracker in the middle of your screen instead of where you put it, until it had shown once that session. It shows on its own spot now.
 - **Ready Reminders and Reactive Totems:** right-clicking a reminder or an alert out of a fight opened its settings. A right-click only does that while you're placing them now (Move the Icons, Show All (Position) or Unlock UI).
 - **Frame Edges (WoW: Forever):** switching to a profile without Frame Edges could show an error ("attempt to perform boolean test on a secret boolean value"). It's gone.
 
 ### Thanks
-- Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii and riseandshine for the reports.
+- Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii, riseandshine and Moolnir for the reports.
 
 ## v3.0.9.16 (2026-11-16)
 

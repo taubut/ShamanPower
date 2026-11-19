@@ -39,10 +39,11 @@ ns.PATCH_NOTES = {
 			"Call of the Elements (WoW: Forever): it could drop Searing Totem and Windfury Totem at rank 1 when you'd set them up before learning a higher rank. It always drops your highest rank now, on all three Calls.",
 			"Ready Reminders (WoW: Forever): Maelstrom Weapon's sound at 5 stacks stopped after Shield Charges' setup reloaded your game (for example after you learned Water Shield). It stays on now.",
 			"Totem Bar: a flyout could stay out after your mouse left the bar across your Quick Totems. It closes now.",
+			"Totem Range Tracker: Unlock UI and the settings preview showed the tracker in the middle of your screen instead of where you put it, until it had shown once that session. It shows on its own spot now.",
 			"Ready Reminders and Reactive Totems: right-clicking a reminder or an alert out of a fight opened its settings. A right-click only does that while you're placing them now.",
 			"Frame Edges (WoW: Forever): switching to a profile without Frame Edges could show an error. It's gone.",
 		},
-		thanks = "Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii and riseandshine for the reports.",
+		thanks = "Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii, riseandshine and Moolnir for the reports.",
 	},
 	{
 		v = "3.0.9.16",

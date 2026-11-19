@@ -613,7 +613,14 @@ function SP:CreateSPRangeFrame()
 
 	local frame = CreateFrame("Frame", "ShamanPowerRangeFrame", UIParent, "BackdropTemplate")
 	frame:SetSize(150, 40)
-	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	-- (3.0.9.17, Moolnir) on its saved spot from the start: only ShowSPRangeOverlay put it there, so Unlock UI and the
+	-- settings preview (SPRangeDemo) showed it in the middle of the screen until the tracker had shown once
+	local pos = ShamanPower_RangeTracker and ShamanPower_RangeTracker.position
+	if pos and pos.point then
+		frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+	else
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:SetClampedToScreen(true)
