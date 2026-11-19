@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## v3.0.9.19 (2026-11-19)
+
+### Fixes
+- **Frame Buff Indicators (WoW: Forever):** it now only watches your party and raid frames and never looks at nameplates, so the error in dungeons ("Attempt to access forbidden object") can't come back. That error showed up even with Frame Buff Indicators off.
+
+### Thanks
+- Thanks to denko for the report.
+
 ## v3.0.9.18 (2026-11-19)
 
 ### Fixes

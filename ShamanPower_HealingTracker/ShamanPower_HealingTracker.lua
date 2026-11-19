@@ -77,22 +77,9 @@ local function frameList()
 	return FRAMES
 end
 
--- (3.0.9.18, denko on Discord, 11-19, in dungeons: "calling '?' on bad self (Attempt to access forbidden object from code tainted
--- by an AddOn)") the game's nameplates go through CompactUnitFrame_SetUnit too, forbidden ones included (Forever's
--- Blizzard_NamePlates: FORBIDDEN_NAME_PLATE_CREATED), and a forbidden frame refuses every call, GetName too. So a frame
--- handed over is never asked anything: it's one of ours if it IS one of the game's party or raid frames
-local function kindOf(frame)
-	if not frame then return nil end
-	for _, e in ipairs(frameList()) do
-		if _G[e[1]] == frame then return e[2] end
-	end
-	return nil
-end
-
 -- recs[frame] = { frame, kind, parts = { [key] = { host, container, sig, unit, boundSig, failed, timeText } } }
 local H = { recs = setmetatable({}, { __mode = "k" }), pending = false, ticker = nil }
 SP.HealingTrackerState = H   -- (tests and the support code)
-H.kindOf = kindOf            -- (tests: the hook's check; the sim has no CompactUnitFrame_SetUnit)
 
 local function locked()
 	if InCombatLockdown() then return true end
@@ -251,6 +238,30 @@ end
 
 local ev = CreateFrame("Frame")
 
+local queued = false
+local function soon()
+	if queued then return end
+	queued = true
+	C_Timer.After(0.1, function() queued = false; SP:UpdateHealingTracker() end)
+end
+
+-- a frame handed another player (the game does this out of combat): bound again.
+-- (3.0.9.18, denko on Discord, 11-19, in dungeons: "calling '?' on bad self (Attempt to access forbidden object from
+-- code tainted by an AddOn)", 903 times in his support code) this module watched the game's shared
+-- CompactUnitFrame_SetUnit, which the nameplates go through too, forbidden ones included (Forever's Blizzard_NamePlates:
+-- FORBIDDEN_NAME_PLATE_CREATED), and asked each frame its name. Now only the party and raid frames themselves are
+-- watched, each for its own "unit" (CompactUnitFrame_SetUnit sets it on the frame): nothing else reaches this module
+local watched = setmetatable({}, { __mode = "k" })
+local function watch(f)
+	if watched[f] then return end
+	watched[f] = true
+	local ok, err = pcall(f.HookScript, f, "OnAttributeChanged", function(_, name)
+		if name == "unit" then soon() end
+	end)
+	if not ok then geterrorhandler()(err) end   -- (a roster change still binds the frame again)
+end
+H.watched = watched   -- (tests)
+
 -- everything brought up to date; in a fight (or while the game hides auras) it waits
 function SP:UpdateHealingTracker()
 	local sv = DB()
@@ -271,7 +282,7 @@ function SP:UpdateHealingTracker()
 	local seen = {}
 	for _, e in ipairs(frameList()) do
 		local f = _G[e[1]]
-		if f then seen[f] = true; sync(f, sv, e[2]) end
+		if f then seen[f] = true; watch(f); sync(f, sv, e[2]) end
 	end
 	for f, rec in pairs(H.recs) do   -- (a frame made under another name: kept up to date as well)
 		if not seen[f] then sync(f, sv, rec.kind) end
@@ -335,20 +346,6 @@ function SP:HealingTrackerReset()
 		for k in pairs(sv) do sv[k] = nil end
 	end
 	self:UpdateHealingTracker()
-end
-
-local queued = false
-local function soon()
-	if queued then return end
-	queued = true
-	C_Timer.After(0.1, function() queued = false; SP:UpdateHealingTracker() end)
-end
-
--- a frame handed another player (the game does this out of combat): bound again
-if type(rawget(_G, "CompactUnitFrame_SetUnit")) == "function" then   -- (WoW's raid frames: Blizzard_UnitFrame)
-	hooksecurefunc("CompactUnitFrame_SetUnit", function(frame)
-		if kindOf(frame) then soon() end
-	end)
 end
 
 ev:RegisterEvent("PLAYER_LOGIN")
