@@ -484,7 +484,7 @@ do
 		local natureResRanks = { 10595, 10600, 10601, 25574 }
 		for _, id in ipairs(natureResRanks) do castFamilies[id] = natureResRanks end
 	end
-	local totemCastNames = {}
+	local totemCastNames, rankCastTexts = {}, {}
 	SPCompat.SpellDataGeneration = 0
 	function SPCompat.OnSpellDataChanged(callback)
 		spellDataHooks[#spellDataHooks + 1] = callback
@@ -493,6 +493,7 @@ do
 		for id in pairs(spellNames) do spellNames[id] = nil end
 		for id in pairs(knownIDs) do knownIDs[id] = nil end
 		for id in pairs(totemCastNames) do totemCastNames[id] = nil end
+		for id in pairs(rankCastTexts) do rankCastTexts[id] = nil end
 		SPCompat.SpellDataGeneration = SPCompat.SpellDataGeneration + 1
 		for i = 1, #spellDataHooks do spellDataHooks[i]() end
 	end
@@ -782,6 +783,68 @@ do
 		end
 		if selected then return selected end
 		return SPCompat.SpellName(id, fallback)
+	end
+	-- (3.0.9.17) A rank picked for a totem: Rank in its right-click menu on Totem Bar > Bar (a Discord ask,
+	-- 11-19: Windfury and Searing Totem at rank 1 to save mana). ShamanPower sets SPCompat.TotemRankChoice
+	-- (the totem's rank-1 spell ID -> the rank number picked; nil = Highest, as always). The rank cast is the
+	-- one picked, or while it is not learned yet the closest lower one learned; picked at or above the highest
+	-- rank you know, nothing changes. Returns that rank's spell ID and number, or nil (the highest).
+	function SPCompat.TotemPickedRank(id)
+		local choice = SPCompat.TotemRankChoice
+		if not choice or not plain(id) or type(id) ~= "number" then return nil end
+		local ranks = rankFamily[id]
+		if not ranks then return nil end
+		local want = choice(ranks[1])
+		if type(want) ~= "number" or want < 1 then return nil end
+		local top
+		for i = #ranks, 1, -1 do
+			if knowsOneID(ranks[i]) then top = i; break end
+		end
+		if not top or want >= top then return nil end
+		for i = want, 1, -1 do
+			if knowsOneID(ranks[i]) then return ranks[i], i end
+		end
+		-- none of the lower ranks reported: Classic may report only the highest rank you know
+		return ranks[want], want
+	end
+	-- the text that casts one rank, as a macro's /cast takes it: "Searing Totem(Rank 1)", in the game's own words
+	local getSubtext = rawget(_G, "GetSpellSubtext") or (C_Spell and C_Spell.GetSpellSubtext)
+	local function rankCastText(rankID, number)
+		local text = rankCastTexts[rankID]
+		if text then return text end
+		local name = SPCompat.SpellName(rankID)
+		if not name then return nil end
+		local sub
+		if getSubtext then
+			local ok, s = pcall(getSubtext, rankID)
+			if ok and plain(s) and type(s) == "string" and s ~= "" then sub = s end
+		end
+		if not sub then
+			local header = rawget(_G, "TRADESKILL_RANK_HEADER")
+			local ok, s = pcall(string.format, type(header) == "string" and header or "Rank %d", number)
+			sub = ok and s or ("Rank " .. number)
+		end
+		text = name .. "(" .. sub .. ")"
+		rankCastTexts[rankID] = text
+		return text
+	end
+	-- What a totem button, flyout, Drop All, macro or Quick Totem casts for a totem: its picked rank, else the
+	-- name as before (the highest rank; TotemCastName where a language names its ranks apart). Casting only:
+	-- what a totem is called on screen, and the keys found for it on your action bars, keep the plain name.
+	function SPCompat.TotemCastSpell(id, fallback)
+		local rankID, number = SPCompat.TotemPickedRank(id)
+		if rankID then
+			local text = rankCastText(rankID, number)
+			if text then return text end
+		end
+		if SPCompat.HasTotemCastAliases(id) then return SPCompat.TotemCastName(id, fallback) end
+		return SPCompat.SpellName(id, fallback)
+	end
+	-- the rank a totem's tooltip shows: the picked one, else the highest you know
+	function SPCompat.TotemTooltipID(id)
+		local rankID = SPCompat.TotemPickedRank(id)
+		if rankID then return rankID end
+		return SPCompat.HighestKnownRank(id)
 	end
 	function SPCompat.AuraMatches(name, spellID, ids)
 		if not plain(ids) then return false end

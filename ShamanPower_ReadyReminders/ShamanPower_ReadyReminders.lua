@@ -98,6 +98,12 @@ local DEFAULTS = {
 	stackBarHeight = 0,    -- Charge Bar Only's height (0: a third of Size)
 	stackColor = { r = 0.35, g = 0.65, b = 1.0 },   -- the stacks below 5: the Charge Bar, the Storm Glow
 	stackColor5 = { r = 1, g = 0.82, b = 0 },       -- at 5: the number and the Charge Bar (WoW's gold)
+	-- (3.0.9.17, A116) Shield: Show (missing: only while no shield is on you | always: the icon stays), and with Always
+	-- the cooldown bar's charge count and charge bar on the icon (ShamanPower_ReadyShield.lua)
+	shieldShow = "missing",
+	shieldCount = true,
+	shieldCountPos = "corner",   -- corner: bottom right, over the bar (the cooldown bar's) | center: large in the middle (Shield Charges')
+	shieldBar = true,
 	-- (3.0.9.2) When Out of Mana: the tint and the effect, off to start; ShamanPower's out-of-mana
 	-- blue (the totem bar's Low-Mana Tint's) for both colors
 	oomTint = false,
@@ -188,6 +194,10 @@ SP.ReadyReminderSpells = {
 	-- charge on Forever (its own spell data)
 	{ key = "clearcasting", name = "Clearcasting", optName = "Clearcasting (shows while it is on you)", ids = { 16164 }, def = false,
 		foreverOnly = true, proc = { buff = 16246, talent = 16164, map = { [16246] = true }, icon = 136170 } },   -- (136170: both spells' icon, the game's data)
+	-- (3.0.9.17, a CurseForge ask) Shield: shows while neither Lightning Shield nor Water Shield is on you, the way
+	-- Weapon Imbue shows while an imbue is missing, with the icon of the shield last on (SP.ReadyShield, below).
+	-- Last in the list, so no default spot before it moves
+	{ key = "shield", name = "Shield", optName = "Shield (shows while it is missing)", ids = { 324 }, def = false, shield = true },
 }
 
 local frames = {}
@@ -204,7 +214,7 @@ local catalogByKey = {}
 for i, e in ipairs(SP.ReadyReminderSpells) do
 	e.order = i
 	catalogByKey[e.key] = e
-	if not e.combo then
+	if not (e.combo or e.shield) then   -- (Shield: both shields, so never one spell's name)
 		for _, id in ipairs(e.ids) do
 			local name = SPCompat.SpellName(id)
 			if name then e.name = SPCompat.SpellLabel(id, e.name) break end
@@ -218,12 +228,15 @@ local Buff = { of = {}, list = {}, formatters = {}, proxies = {},
 	KEY = { buffLook = true, buffCorner = true, buffSize = true, buffSide = true, buffOwnSize = true, buffTime = true,
 		buffTimeSize = true, buffGoldUnder = true, buffEdgeColor = true },
 	-- (3.0.9.2) Maelstrom Weapon's own settings
-	STACK = { stackLook = true, stackShow = true, stackNumber = true, stackLeft = true, stackColor = true, stackColor5 = true, stackBarHeight = true } }
+	STACK = { stackLook = true, stackShow = true, stackNumber = true, stackLeft = true, stackColor = true, stackColor5 = true, stackBarHeight = true },
+	-- (3.0.9.17) Shield's own settings
+	SHIELD = { shieldShow = true, shieldCount = true, shieldCountPos = true, shieldBar = true } }
 -- a buff setting copied or pasted onto an icon whose spell puts no buff on you here: left out
--- (and a stacks setting onto an icon that shows no stacks)
+-- (and a stacks setting onto an icon that shows no stacks, a shield setting onto any other icon)
 function Buff.Skip(key, opt)
 	local e = catalogByKey[key]
 	if Buff.STACK[opt] then return not (e and e.stacks) end
+	if Buff.SHIELD[opt] then return not (e and e.shield) end
 	return Buff.KEY[opt] == true and not (e and e.buff)
 end
 do
@@ -341,12 +354,14 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "glowShape
 	-- (3.0.9.2) When Out of Mana
 	"oomTint", "oomColor", "oomEffect", "oomGlowShape", "oomGlowColor",
 	-- (3.0.9.14) Show For: the specs it shows for (none ticked: every spec)
-	"specElemental", "specEnhancement", "specRestoration" }
+	"specElemental", "specEnhancement", "specRestoration",
+	-- (3.0.9.17, A116) Shield's Show and its charges
+	"shieldShow", "shieldCount", "shieldCountPos", "shieldBar" }
 local ICON_KEY = {}
 for _, k in ipairs(ICON_KEYS) do ICON_KEY[k] = true end
 local resolved = {}   -- [catalog key] = { gen = n, <setting> = value }: one table per icon, made once
 local function IconOpt(entry, key)
-	if key == "mode" and entry and (entry.imbue or entry.weaponSet or entry.stacks or entry.proc) then return "ready" end   -- (Maelstrom Weapon: its stacks)   -- Weapon Imbue: only while it is missing; Weapon Set: always (always ready)
+	if key == "mode" and entry and (entry.imbue or entry.shield or entry.weaponSet or entry.stacks or entry.proc) then return "ready" end   -- (Maelstrom Weapon: its stacks)   -- Weapon Imbue: only while it is missing; Weapon Set: always (always ready)
 	local r = resolved[entry.key]
 	if not r then r = {}; resolved[entry.key] = r end
 	if r.gen ~= optGen or ShamanPower_ReadyReminders ~= filledFor then   -- (a new saved table: SV() moves optGen)
@@ -477,6 +492,8 @@ local function playerKnows(entry)
 		known = Buff.KnowsTalent(entry.proc) and true or false   -- (3.0.9.14, Clearcasting: its talent, Elemental Focus)
 	elseif id and entry.stacks then
 		known = Buff.KnowsTalent(entry.stacks) and true or false   -- (Maelstrom Weapon: a talent)
+	elseif id and entry.shield then
+		known = SP.ReadyShield.knows(1) or SP.ReadyShield.knows(2)   -- (3.0.9.17) either shield
 	elseif id then
 		known = SPCompat.KnowsSpellID(id)
 	end
@@ -534,12 +551,181 @@ local function imbueIcon()
 	local idx = SV().lastImbue or (SP.DefaultImbueIndex and SP:DefaultImbueIndex()) or 1
 	return (SP.WeaponIcons and SP.WeaponIcons[idx]) or 136024
 end
+-- (3.0.9.17) Shield: no shield on reads as ready (no cooldown); a shield on reads as a cooldown that ends when it
+-- runs out. [1] Lightning Shield, [2] Water Shield (SP.ShieldAuraSets: every rank). In a fight on WoW: Forever the
+-- game hides your buffs: casting a shield puts it up, and the word that it went (SP:ReadyShieldHook) takes it down;
+-- otherwise the last answer stands until the game answers again. The icon is the shield last on (kept in the saved
+-- settings, so it is still right after a reload). (A table, not locals: this file is at Lua's 200-local limit.)
+SP.ReadyShield = { up = {}, exp = {}, dur = {}, tex = {}, count = {}, readAt = 0, wanted = false }
+function SP.ReadyShield.sets()
+	local S = SP.ReadyShield
+	if not S.list then
+		S.list = {}
+		for w = 1, 2 do
+			local set = SP.ShieldAuraSets and SP.ShieldAuraSets[w]
+			local ids = set and set.ids or {}
+			local map = {}
+			for _, id in ipairs(ids) do map[id] = true end
+			S.list[w] = { ids = ids, map = map }
+		end
+	end
+	return S.list
+end
+-- does the player know this shield (any rank)?
+function SP.ReadyShield.knows(w)
+	for _, id in ipairs(SP.ReadyShield.sets()[w].ids) do
+		if SPCompat.KnowsSpellID(id) then return true end
+	end
+	return false
+end
+-- may an empty answer be taken as "not on you"? (WoW: Forever hides your buffs in a fight, and a moment after it)
+function SP.ReadyShield.readable()
+	if not SPCompat.FOREVER then return true end
+	if InCombatLockdown() then return false end
+	return not (SPCompat.AurasUnreadable and SPCompat.AurasUnreadable())
+end
+-- true, duration, expirationTime, icon, charges: on you; false: not on you; nil: the game would not say
+function SP.ReadyShield.find(b)
+	local secret = issecretvalue or function() return false end
+	local A = C_UnitAuras
+	if A and A.GetPlayerAuraBySpellID then
+		for _, id in ipairs(b.ids) do
+			local ok, a = pcall(A.GetPlayerAuraBySpellID, id)
+			if not ok or secret(a) then return nil end
+			if type(a) == "table" then
+				local tex = not secret(a.icon) and a.icon or nil
+				local n = not secret(a.applications) and tonumber(a.applications) or nil
+				if secret(a.duration) or secret(a.expirationTime) then return true, nil, nil, tex, n end
+				return true, tonumber(a.duration) or 0, tonumber(a.expirationTime) or 0, tex, n
+			end
+		end
+		return false
+	end
+	if not SPCompat.UnitBuff then return nil end
+	for i = 1, 40 do
+		local name, icon, count, _, dur, exp, _, _, _, spellID = SPCompat.UnitBuff("player", i)
+		if not name then break end
+		if secret(spellID) then return nil end
+		if b.map[spellID] then
+			local tex = not secret(icon) and icon or nil
+			local n = not secret(count) and tonumber(count) or nil
+			if secret(dur) or secret(exp) then return true, nil, nil, tex, n end
+			return true, tonumber(dur) or 0, tonumber(exp) or 0, tex, n
+		end
+	end
+	return false
+end
+function SP.ReadyShield.mark(w)
+	if SV().lastShield ~= w then SV().lastShield = w end
+end
+-- the game's answer, at most every 0.4 s, only while it may be taken at its word
+function SP.ReadyShield.read()
+	local S = SP.ReadyShield
+	local now = GetTime()
+	if now - S.readAt < 0.4 or not S.readable() then return end
+	S.readAt = now
+	for w, b in ipairs(S.sets()) do
+		local on, dur, exp, tex, n = S.find(b)
+		if on ~= nil then
+			S.up[w] = on
+			S.count[w] = on and n or nil   -- (its charges, where the game says: Show: Always draws them)
+			if tex then S.tex[w] = tex end   -- (the buff's own icon: the one shown from then on)
+			if on then
+				S.dur[w] = (dur and dur > 0) and dur or S.dur[w]
+				S.exp[w] = (exp and exp > 0) and exp or nil
+			else
+				S.exp[w] = nil
+			end
+		end
+	end
+end
+-- your own cast (told in a fight too): that shield is on for its whole length, the other one gone
+function SP.ReadyShield.cast(spellID)
+	if type(spellID) ~= "number" or (issecretvalue and issecretvalue(spellID)) then return end
+	local S = SP.ReadyShield
+	for w, b in ipairs(S.sets()) do
+		if b.map[spellID] then
+			local now = GetTime()
+			S.up[w], S.exp[w] = true, now + (S.dur[w] or 600)
+			S.up[3 - w], S.exp[3 - w], S.count[3 - w] = false, nil, nil
+			S.readAt = now   -- (the buff may land a moment after the cast: no read before it can)
+			S.mark(w)
+			SP.readyWake = true
+			return
+		end
+	end
+end
+-- start, duration of the shield on now; nil, nil while none is on
+function SP.ReadyShield.cooldown()
+	local S = SP.ReadyShield
+	S.read()
+	local now = GetTime()
+	for w = 1, 2 do
+		if S.up[w] then
+			local exp, dur = S.exp[w], S.dur[w]
+			if exp and exp <= now then
+				S.up[w], S.exp[w] = false, nil   -- (ran out)
+			else
+				S.mark(w)
+				if exp and dur and dur >= exp - now then return exp - dur, dur end
+				if exp then return now, exp - now end
+				return now, 3600   -- (on, no end known: it holds)
+			end
+		end
+	end
+	if S.up[1] == nil and S.up[2] == nil then return now, 3600 end   -- (no answer yet: says nothing it cannot know)
+	return nil, nil
+end
+-- the icon of the shield on now, else the one last seen, else Lightning Shield (Water Shield when it is the only one known)
+function SP.ReadyShield.icon()
+	local w = SV().lastShield
+	if w ~= 1 and w ~= 2 then w = (SP.ReadyShield.knows(2) and not SP.ReadyShield.knows(1)) and 2 or 1 end
+	if SP.ReadyShield.tex[w] then return SP.ReadyShield.tex[w] end   -- (seen on you this session)
+	for _, id in ipairs(SP.ReadyShield.sets()[w].ids) do
+		if SPCompat.KnowsSpellID(id) then return GetSpellTextureC(id) or 136024 end
+	end
+	local first = SP.ReadyShield.sets()[w].ids[1]
+	return first and GetSpellTextureC(first) or 136024
+end
+-- ShamanPower_ShieldCharges' Cooldown Manager hook (WoW: Forever): a shield went (up false) or came (up true), in a fight too
+function SP:ReadyShieldHook(w, up)
+	local S = SP.ReadyShield
+	if w ~= 1 and w ~= 2 then return end
+	S.up[w] = up and true or false
+	if up then
+		local now = GetTime()
+		if not (S.exp[w] and S.exp[w] > now) then S.exp[w] = now + (S.dur[w] or 600) end
+		S.mark(w)
+	else
+		S.exp[w] = nil
+	end
+	SP.readyWake = true
+end
+-- is the Shield reminder in use (ShamanPower_ShieldCharges then keeps that hook bound, and offers its one setup)
+function SP:ReadyShieldWanted() return SP.ReadyShield.wanted == true end
+function SP.ReadyShield.setWanted(on)
+	on = on and true or false
+	if SP.ReadyShield.wanted == on then return end
+	SP.ReadyShield.wanted = on
+	if SP.ShieldGoneBindQueue then SP:ShieldGoneBindQueue() end
+end
+-- (A116) Show: Always: the icon stays while a shield is on you too, its charges on it (ShamanPower_ReadyShield.lua)
+function SP.ReadyShield.always(entry) return IconOpt(entry, "shieldShow") == "always" end
+-- the charges of the shield on you, as the game last said (nil: none on you, or not said)
+function SP.ReadyShield.charges()
+	local S = SP.ReadyShield
+	for w = 1, 2 do
+		if S.up[w] then return S.count[w] end
+	end
+	return nil
+end
 local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
 local isShock = { earthshock = true, flameshock = true, frostshock = true }
 local function cooldownOf(entry, ownOnly)
 	if entry.stacks then return nil, nil end   -- (Maelstrom Weapon: stacks, no cooldown)
 	if entry.proc then return nil, nil end     -- (3.0.9.14, Clearcasting: a buff, no cooldown)
 	if entry.imbue then return imbueCooldown() end
+	if entry.shield then return SP.ReadyShield.cooldown() end   -- (3.0.9.17)
 	if entry.weaponSet then return 0, 0 end   -- (A28) always ready: always on screen
 	if entry.combo then
 		-- Shocks: the family's cooldown (the latest end among the shocks known)
@@ -654,19 +840,21 @@ local function defaultPos(entry)
 		if sv.layout == "column" then return { point = "CENTER", x = 260 + step, y = -off } end
 		return { point = "CENTER", x = off, y = -140 - step }
 	end
-	if entry.proc then
-		-- (3.0.9.14) Clearcasting: just past the end of the spells' row, so every spell's spot is as it was
+	if entry.proc or entry.shield then
+		-- (3.0.9.14) Clearcasting: just past the end of the spells' row, so every spell's spot is as it was;
+		-- (3.0.9.17) Shield: just before its start
 		local width = -gap
 		for _, e in ipairs(SP.ReadyReminderSpells) do
-			if not (e.combo or e.races or e.proc) then width = width + (IconOpt(e, "iconSize") or 48) + gap end
+			if not (e.combo or e.races or e.proc or e.shield) then width = width + (IconOpt(e, "iconSize") or 48) + gap end
 		end
 		local past = width / 2 + gap + (IconOpt(entry, "iconSize") or 48) / 2
+		if entry.shield then past = -past end
 		if sv.layout == "column" then return { point = "CENTER", x = 260, y = -past } end
 		return { point = "CENTER", x = past, y = -140 }
 	end
 	local total, before = -gap, 0
 	for _, e in ipairs(SP.ReadyReminderSpells) do
-		if not (e.combo or e.races or e.proc) then
+		if not (e.combo or e.races or e.proc or e.shield) then
 			local cell = (IconOpt(e, "iconSize") or 48) + gap
 			total = total + cell
 			if rankOf(e) < rankOf(entry) then before = before + cell end
@@ -1238,6 +1426,9 @@ function SP:CreateReadyReminderFrame(entry)
 	end)
 	f:SetScript("OnClick", function(self, button)
 		if button ~= "RightButton" then return end
+		-- (3.0.9.17, the owner) only while the icons are being placed (Move the Icons, Unlock UI): outside it a
+		-- right-click on an icon does nothing (it opened the settings in the middle of play)
+		if not (SP.readyPositioning or (SP.IsMasterUnlocked and SP:IsMasterUnlocked())) then return end
 		-- the settings page with this icon's own menu open (ShamanPower_Config ReadyIcons.lua)
 		if SP.ReadyReminderOpenIconMenu then SP:ReadyReminderOpenIconMenu(self.entry.key)
 		elseif ShamanPowerConfig then ShamanPowerConfig:Open({ "fluffy", "readyreminders_section" }) end
@@ -1245,7 +1436,7 @@ function SP:CreateReadyReminderFrame(entry)
 	f:SetScript("OnEnter", function(self)
 		if not (SP.opt and SP.opt.ShowTooltips) then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine(self.entry.name .. " ready", 0.3, 0.8, 1.0)
+		GameTooltip:AddLine(self.entry.name .. (self.entry.shield and " missing" or " ready"), 0.3, 0.8, 1.0)
 		if SP.readyPositioning then GameTooltip:AddLine("Drag to move | Right-click for options", 0.5, 0.5, 0.5) end
 		GameTooltip:Show()
 	end)
@@ -1563,6 +1754,8 @@ function SP:UpdateReadyReminderAppearance(key)
 		applyShockLook(f)
 	elseif f.entry.imbue then
 		f.icon:SetTexture(imbueIcon())
+	elseif f.entry.shield then
+		f.icon:SetTexture(SP.ReadyShield.icon())   -- (3.0.9.17)
 	elseif f.entry.weaponSet then
 		f.icon:SetTexture(R.WeaponSet.icon())   -- (A28)
 	else
@@ -1583,6 +1776,10 @@ function SP:UpdateAllReadyReminderAppearance()
 	settingsChanged()   -- any setting may have changed: each icon reads its own settings again
 	for key, f in pairs(frames) do self:UpdateReadyReminderAppearance(key); applyPos(f) end   -- positions too: an import replaces them
 	if gridAnchor then applyGridPos() end   -- an import replaces the grid's spot as well
+	-- (3.0.9.17) and each row's spot and the page's order: a profile switch or an import replaces them too (before, the
+	-- rows stayed where the last profile had them, and the grid and rows kept the last profile's order)
+	for i, a in ipairs(R.anchors) do if not a.isMoving then R.applyRowPos(i) end end
+	R.orderGen, R.gen = R.orderGen + 1, R.gen + 1
 	gridDirty = true   -- any setting may have changed
 	layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)
 	rangeRepaintAll()   -- the Out of Range look or color may have changed
@@ -1792,7 +1989,7 @@ end
 -- ---------------------------------------------------------------------------
 R.Oom = { n = 0 }
 function R.Oom.on(e)
-	if e.weaponSet or e.stacks or e.proc then return false end
+	if e.weaponSet or e.stacks or e.proc or e.shield then return false end   -- (Shield: two spells, not one cost)
 	return IconOpt(e, "oomTint") == true or (IconOpt(e, "oomEffect") or "none") ~= "none"
 end
 -- true / false, a hidden value in a fight, or nil (no answer)
@@ -2916,6 +3113,7 @@ local function flashArt(entry)
 		return tex or GetSpellTextureC(8042) or 136024, e and e.name or entry.name
 	end
 	if entry.imbue then return imbueIcon(), entry.name end
+	if entry.shield then return SP.ReadyShield.icon(), entry.name end   -- (3.0.9.17)
 	if entry.weaponSet then return R.WeaponSet.icon(), R.WeaponSet.word() end   -- (A28)
 	local id = clientSpellID(entry)
 	return id and GetSpellTextureC(id) or 136024, entry.name
@@ -3854,7 +4052,7 @@ local rangeEventSeen, rangeWaiting = false, false
 local function rangeIDOf(entry)
 	local id = rangeIDs[entry.key]
 	if id ~= nil then return id or nil end
-	if entry.stacks or entry.proc then rangeIDs[entry.key] = false return nil end   -- (Maelstrom Weapon, Clearcasting: no target)
+	if entry.stacks or entry.proc or entry.shield then rangeIDs[entry.key] = false return nil end   -- (Maelstrom Weapon, Clearcasting, Shield: no target)
 	id = false
 	if RANGE_API then
 		local cand
@@ -4221,8 +4419,10 @@ local function readyPass(self)
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 			if f.stack and SP.ReadyStacks then SP.ReadyStacks.Idle() end   -- (3.0.9.2) nothing to read
 			if f.procSt and SP.ReadyProcs then SP.ReadyProcs.Idle(f) end   -- (3.0.9.14) Clearcasting
+			if f.shieldSt and SP.ReadyShieldCharges then SP.ReadyShieldCharges.Idle(f) end   -- (3.0.9.17) Shield's charges
 		end
 		Buff.Pass(false, true)   -- (D52) their buffs too
+		SP.ReadyShield.setWanted(false)   -- (3.0.9.17)
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		rangeSync()
 		return
@@ -4244,6 +4444,7 @@ local function readyPass(self)
 		-- (A26) off on the Icons tab, on in Ready Flash: timed like the rest, never on screen
 		local flashOnly = false
 		if not want and can and R.FlashTab.on(entry) and not entry.stacks and not entry.proc then want = true; flashOnly = true end
+		if entry.shield then SP.ReadyShield.setWanted(want) end   -- (3.0.9.17) the shield-gone hook kept bound while it is used
 		if f then f.inUse = want end   -- its flags are read on the cooldown events (Forever)
 		-- Only In Combat (the icon's own, else the page's): hidden out of combat, or faded
 		-- with Fade Instead of Hide (D51; not in "never", where it is never on screen)
@@ -4277,7 +4478,7 @@ local function readyPass(self)
 			setFade(f, faded and (townFade or fadedOpacity(entry)) or 1)   -- before any alpha this pass (in a fight: 1)
 			-- WoW: Forever: the game's own flags decide (see readFlags); the estimate times it
 			local st
-			local flags = FLAGS and not entry.imbue and not entry.weaponSet   -- (the imbue and the weapon set have no spell cooldown to ask about)
+			local flags = FLAGS and not entry.imbue and not entry.shield and not entry.weaponSet   -- (the imbue, the shield and the weapon set have no spell cooldown to ask about)
 			if flags then
 				if f.flagFresh then f.flagFresh = nil; readFlags(entry, true, false, false)
 				elseif flagState[entry.key] == "cooling" then readFlags(entry, false, false, false) end
@@ -4299,6 +4500,9 @@ local function readyPass(self)
 			if entry.imbue then
 				local tex = imbueIcon()
 				if f.imbueTex ~= tex then f.imbueTex = tex; f.icon:SetTexture(tex) end
+			elseif entry.shield then   -- (3.0.9.17)
+				local tex = SP.ReadyShield.icon()
+				if f.shieldTex ~= tex then f.shieldTex = tex; f.icon:SetTexture(tex) end
 			elseif entry.weaponSet then
 				local tex = R.WeaponSet.icon()
 				if f.wsTex ~= tex then f.wsTex = tex; f.icon:SetTexture(tex); R.WeaponSet.label(f) end
@@ -4349,6 +4553,21 @@ local function readyPass(self)
 				f.wasReady = false; f.lastDuration = duration
 				if not f:IsShown() then f:Show() end
 				drawCooldown(f, start, duration, remaining)
+			elseif entry.shield and SP.ReadyShield.always(entry) then
+				-- (3.0.9.17, A116) Shield, Show: Always: a shield on you, the icon stays, plain (no effect, no cooldown
+				-- look); its charges are drawn on it below
+				f.wasReady = false; f.lastDuration = duration
+				f.gridReady = true
+				stopEffects(f)
+				setDesat(f, false)
+				if f.cooldown:IsShown() then f.cooldown:Hide() end
+				if f.overlay:IsShown() then f.overlay:Hide() end
+				if f.bar:IsShown() then f.bar:Hide() end
+				if f.countShown ~= nil then f.count:SetText(""); f.countShown = nil end
+				curveMouseBack(f)
+				local a = IconOpt(entry, "opacity") or 1
+				f:SetAlpha(a * (f.fade or 1)); f.fadeBase = a
+				if not f:IsShown() then f:Show() end
 			elseif mode == "flash" then
 				-- never on screen (Ready Flash only): the pass still times it for the flash
 				f.wasReady = false; f.lastDuration = duration
@@ -4360,7 +4579,7 @@ local function readyPass(self)
 				-- Forever: stay on screen, invisible, and let the real cooldown's curve
 				-- show the icon when it ends, even if our estimate says it is still cooling
 				local curved = false
-				if engineOn() and not entry.imbue and not entry.weaponSet and not self.readyDemoActive and C_CurveUtil then   -- (the imbue and the weapon set have no spell cooldown object: plain hide)
+				if engineOn() and not entry.imbue and not entry.shield and not entry.weaponSet and not self.readyDemoActive and C_CurveUtil then   -- (the imbue, the shield and the weapon set have no spell cooldown object: plain hide)
 					-- fetch the duration object once per cooldown, and again when the client
 					-- says a cooldown changed (see the wake frame)
 					if f.readyDurStart ~= start or f.cdChanged then
@@ -4395,6 +4614,7 @@ local function readyPass(self)
 				end
 			end
 			if f.fadeGlide then fadeGlideNow(f) end   -- (D51) a fight ended: down to faded
+			if entry.shield and SP.ReadyShieldCharges then SP.ReadyShieldCharges.Pass(f, ready) end   -- (3.0.9.17, A116) its charges
 		elseif f and not f.spStacksTest then   -- (Maelstrom's Test Icon shows it whatever Show says)
 			-- not on screen now (switched off, or Only In Combat out of combat): it is
 			-- first sight again when it comes back, as when every icon was hidden
@@ -4404,6 +4624,7 @@ local function readyPass(self)
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 			if entry.stacks and SP.ReadyStacks then SP.ReadyStacks.Idle() end   -- (3.0.9.2) nothing to read
 			if entry.proc and SP.ReadyProcs then SP.ReadyProcs.Idle(f) end   -- (3.0.9.14) Clearcasting
+			if entry.shield and SP.ReadyShieldCharges then SP.ReadyShieldCharges.Idle(f, can and spellOn(entry) and placed(entry)) end   -- (3.0.9.17) its charges
 		end
 		-- (3.0.9.14) Clearcasting hidden out of combat by Only In Combat (or Hide In Town): its game parts made
 		-- now, still hidden, because a fight cannot make them
@@ -4570,6 +4791,12 @@ function SP:ReadyRemindersDemo(on)
 						readyCount = readyCount + 1
 						if not f:IsShown() then f:Show() end
 						if SP.ReadyProcs then SP.ReadyProcs.Demo(f) end
+					elseif entry.shield and SP.ReadyShield.always(entry) and t < DEMO_CD then
+						-- (3.0.9.17, A116) Shield, Show: Always: on screen with its charges, 3, 2, 1, then gone (below)
+						if not f:IsShown() then f:Show() end
+						stopEffects(f)
+						f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide()
+						if SP.ReadyShieldCharges then SP.ReadyShieldCharges.Demo(f, 3 - math.floor(t / DEMO_CD * 3)) end
 					elseif t < DEMO_CD then
 						if mode == "always" or mode == "cooldown" then
 							if not f:IsShown() then f:Show() end
@@ -4583,6 +4810,7 @@ function SP:ReadyRemindersDemo(on)
 							if not f:IsShown() then f:Show() end
 							setReady(f, true)
 						end
+						if entry.shield and SP.ReadyShieldCharges then SP.ReadyShieldCharges.Demo(f, 0) end   -- (gone: no charges)
 					end
 				elseif f and f:IsShown() then
 					f:Hide()
@@ -5068,6 +5296,7 @@ function SP.ReadyReminderIconTextures(_, key, out)
 		return n
 	end
 	if entry.imbue then out[1] = imbueIcon(); return 1 end
+	if entry.shield then out[1] = SP.ReadyShield.icon(); return 1 end   -- (3.0.9.17)
 	if entry.weaponSet then out[1] = R.WeaponSet.icon(); return 1 end   -- (A28)
 	local id = clientSpellID(entry)
 	out[1] = id and GetSpellTextureC(id) or 136024
@@ -5310,7 +5539,7 @@ local function InjectOptions()
 				get = function() return SV().layout or "row" end, set = function(_, v) SV().layout = v end },
 			-- (3.0.9.9) Click Through, as the Totem Bar's and the Cooldown Bar's (R.applyThrough)
 			clickThrough = { order = 5.3, type = "select", name = "Click Through", width = 1.4,
-				desc = "The icons ignore the mouse: no tooltip and no right-click settings. Clicks land on whatever is behind them. In Combat: only during fights, so they're yours again between them. Move the Icons still works.",
+				desc = "The icons ignore the mouse: no tooltip. Clicks land on whatever is behind them. In Combat: only during fights, so they're yours again between them. Move the Icons still works.",
 				values = { off = "Off", combat = "In Combat", always = "Always" },
 				sorting = { "off", "combat", "always" },
 				get = function() return SV().clickThrough or "off" end,
@@ -5468,7 +5697,7 @@ ef:SetScript("OnEvent", function(_, event)
 			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
 			wake:SetScript("OnEvent", function(_, event, _, _, spellID)
-				if event == "UNIT_SPELLCAST_SUCCEEDED" then noteShockCast(spellID); Reset.noteCast(spellID) return end
+				if event == "UNIT_SPELLCAST_SUCCEEDED" then noteShockCast(spellID); Reset.noteCast(spellID); SP.ReadyShield.cast(spellID) return end
 				if event == "GET_ITEM_INFO_RECEIVED" then if R.WeaponSet.pending then R.WeaponSet.changed() end return end   -- (A28: an item answered late)
 				if event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then R.WeaponSet.changed() end   -- (A28)
 				SP.readyWake = true
@@ -5564,7 +5793,7 @@ if SP.ThemeSpotSettings then
 			entries[#entries + 1] = R.themeColor(key, "stackColor5", entry.name .. " Color At 5 Stacks")
 		end
 		-- (3.0.9.2) When Out of Mana's two colors, the same way ("default" = the shared out-of-mana blue)
-		if not (entry.weaponSet or entry.stacks or entry.proc) then
+		if not (entry.weaponSet or entry.stacks or entry.proc or entry.shield) then
 			entries[#entries + 1] = R.themeColor(key, "oomColor", entry.name .. " Out of Mana Color")
 			entries[#entries + 1] = R.themeColor(key, "oomGlowColor", entry.name .. " Out of Mana Glow Color")
 		end

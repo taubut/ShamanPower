@@ -372,7 +372,9 @@ end
 local SFX = { "LS", "WS", "ES" }
 local WHICH = { LS = 1, WS = 2, ES = 3 }
 -- the Show choice and today's two switches { Hide Out of Combat, Hide When No Shields }
-local SHOW_HIDE = { up = { false, true }, always = { false, false }, fightsUp = { true, true }, fights = { true, false } }
+-- { only in fights, hide while no shield, (3.0.9.17) only while no shield (Lightning / Water Shield: never Earth Shield) }
+local SHOW_HIDE = { up = { false, true }, always = { false, false }, fightsUp = { true, true }, fights = { true, false },
+	missing = { false, false, true }, fightsMissing = { true, false, true } }
 -- key: one per shield (or suffix .. LS / WS / ES); def: the starting value; nilIs: the
 -- value kept as "not set" (nil); color: an { r, g, b } or nil
 local OPT = {
@@ -443,7 +445,8 @@ shieldView = function(which)
 	if v.opacity == nil then v.opacity = 1 end
 	if v.showNumber == nil then v.showNumber = true end
 	local hide = SHOW_HIDE[s[k.show]] or SHOW_HIDE.up
-	v.hideOutOfCombat, v.hideNoShields = hide[1], hide[2]
+	if hide[3] and which == 3 then hide = SHOW_HIDE.up end   -- (Only When Missing: not Earth Shield's)
+	v.hideOutOfCombat, v.hideNoShields, v.onlyMissing = hide[1], hide[2], hide[3] == true
 	local lk, ak, ck = LOOK_KEY[which], ANIM_KEY[which], CHARGE_COLOR_KEY[which]
 	v[lk], v[ak], v[ck] = s[lk], s[ak], s[ck]
 	v.barLook, v.orbLook, v.locked = s.barLook, s.orbLook, s.locked
@@ -513,6 +516,7 @@ local function rawSet(self, which, name, v)
 		v = nil
 	end
 	if name == "show" and not SHOW_HIDE[v] then v = nil end
+	if name == "show" and which == 3 and v and SHOW_HIDE[v][3] then v = nil end   -- (Only When Missing: not Earth Shield's)
 	s[KEY[which][name]] = v
 	-- the number can only be off while the icon or the charge bar is on (as today)
 	if (name == "icon" or name == "bar") and not v then
@@ -1695,6 +1699,7 @@ local function shieldEvent(item, up)
 	if SP.UpdateShieldChargeDisplays then SP:UpdateShieldChargeDisplays() end
 	if SP.ExpiringAlertShieldHook then SP:ExpiringAlertShieldHook(w, up) end   -- Expiring Alerts' shield-gone alert, in a fight too
 	if SP.ShieldSoundHook then SP:ShieldSoundHook(w, up) end   -- (3.0.9.9) the drop sound at Shield Sound Volume (ShamanPowerShieldSound.lua)
+	if SP.ReadyShieldHook then SP:ReadyShieldHook(w, up) end   -- (3.0.9.17) Ready Reminders' Shield, in a fight too
 end
 -- Is the hook wanted at all: a shield's When It's Gone effect is on, or Expiring Alerts' shield alerts
 local function hookWanted()
@@ -1702,7 +1707,10 @@ local function hookWanted()
 	for w = 1, 2 do
 		local fx = sv[KEY[w].goneEffect]
 		if fx and fx ~= "none" then return true end
+		local show = SHOW_HIDE[sv[KEY[w].show]]
+		if show and show[3] and sv[KEY[w].enabled] ~= false then return true end   -- (3.0.9.17) Show: Only When Missing
 	end
+	if SP.ReadyShieldWanted and SP:ReadyShieldWanted() then return true end   -- (3.0.9.17) Ready Reminders' Shield
 	return SP.ExpiringAlertShieldsOn and SP:ExpiringAlertShieldsOn() or false
 end
 -- The Cooldown Manager's own shield icon is hidden (alpha 0: the item stays alive, so its hooks
@@ -2093,6 +2101,10 @@ function SP:ShieldGoneSetup()
 	end
 	local want = cdmWant()
 	if not next(want) then return false, "the game's catalog has no shield you know" end
+	-- (3.0.9.17) Maelstrom Weapon stays in Tracked Buffs: it is there now, or its 5-stack sound wants it (a Discord
+	-- ticket, 11-17: learning Water Shield brought this setup back, and its rebuild put Maelstrom in Not Displayed,
+	-- so the sound stopped in fights)
+	if self.CdmKeepMaelstrom then self:CdmKeepMaelstrom(want, true) end
 	local str = C.GetLayoutData()
 	local data, err = cdmDecode(str)
 	if not data then
@@ -2155,6 +2167,9 @@ function SP:ShieldGoneLayoutComplete()
 	if not have then return false end
 	local want = cdmWant()
 	if not next(want) then return false end
+	-- (3.0.9.17) Maelstrom Weapon in Tracked Buffs there is part of a whole layout (before, it made the layout read
+	-- as not whole, and the shield switch's setup then put it in Not Displayed)
+	if self.CdmKeepMaelstrom then self:CdmKeepMaelstrom(want, false) end
 	for cat, ids in pairs(cdmLayoutLists(want)) do
 		local inLayout = {}
 		if type(have[cat]) == "table" then for _, cid in ipairs(have[cat]) do inLayout[cid] = true end end
@@ -2265,6 +2280,16 @@ local function mwSoundWanted()
 	if not (SP.ReadyReminderIconOpt and SP:ReadyReminderIconOpt("maelstrom", "soundOnReady")) then return false end
 	local API = SP.ReadyStacksAPI
 	return API ~= nil and API.knows ~= nil and API.knows(e) and true or false
+end
+-- (3.0.9.17) The shield setup rebuilds ShamanPower's layout whole (ShieldGoneSetup): Maelstrom Weapon stays tracked
+-- in it when it is tracked there now, and (orSound) when its 5-stack sound wants it (the owner's rule above: never
+-- otherwise). `want` is the setup's own list of cooldownIDs for Tracked Buffs.
+function SP:CdmKeepMaelstrom(want, orSound)
+	if not (SPCompat and SPCompat.FOREVER) then return end
+	if mwTracked() == true or (orSound and mwSoundWanted()) then
+		local mw = mwCooldownID()
+		if mw then want[mw] = true end
+	end
 end
 -- the popup (as Shield Charges' setup): its button puts Maelstrom in ShamanPower's layout (making that layout first,
 -- as the shield setup does, when there is none) and reloads in the same click
@@ -2600,13 +2625,20 @@ function SP:UpdateShieldChargeDisplays()
 
 		for w = 1, 2 do
 			local frame = pf[w]
-			if frame.engine then frame.engine:SetShown(restricted and on[w] and true or false) end
-			if on[w] then
-				local v = shieldView(w)
+			local v = on[w] and shieldView(w) or nil
+			-- (Only When Missing: the game's count never shows; there is nothing to count while it shows)
+			if frame.engine then frame.engine:SetShown(restricted and v ~= nil and not v.onlyMissing) end
+			if v then
 				placeFrame(frame)
 				-- Determine visibility
 				local shouldShow, present
-				if restricted then
+				if v.onlyMissing then
+					-- (3.0.9.17, a Discord ask) Only When Missing: the gray look while no shield is on you, nothing
+					-- while one is. In a fight on WoW: Forever only the Cooldown Manager's word says it went
+					local none
+					if restricted then none = goneHook.bound and goneHook.anyUp == false else none = not hasShield end
+					shouldShow, present = (none and gray == w) and true or false, false
+				elseif restricted then
 					shouldShow, present = true, true
 				elseif upWhich then
 					shouldShow, present = (upWhich == w), true
@@ -2994,6 +3026,7 @@ function SP:ShieldChanged(shield, name)
 		if self.RefreshTextures then self:RefreshTextures() end   -- this shield's Charge Bar Texture / Gradient
 		if name == "reset" and self.UpdateShieldSounds then self:UpdateShieldSounds() end
 	end
+	if name == "show" or name == "enabled" then queueBind() end   -- (3.0.9.17) Only When Missing wants the shield-gone hook
 	SP.chargeStyleGen = (SP.chargeStyleGen or 0) + 1   -- the built layers carry it: a new one is built
 	for _, f in pairs(self.shieldChargeFrames) do
 		for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end

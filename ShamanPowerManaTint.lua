@@ -24,6 +24,11 @@ SP.MANA_TINT_DEFAULT = { r = 0.45, g = 0.45, b = 1.0 }   -- Blizzard's "not enou
 local function castName(spellID)
 	return spellID and (GetSpellInfo(spellID) or spellID) or nil
 end
+-- (3.0.9.17) a totem with a rank picked (its right-click menu): asked about that rank, by its spell ID
+local function totemCast(spellID)
+	local rankID = spellID and SPCompat.TotemPickedRank and SPCompat.TotemPickedRank(spellID)
+	return rankID or castName(spellID)
+end
 
 -- true = not enough mana, false = can cast, nil = unknown (hidden in combat) or no spell
 local function lacksMana(spell)
@@ -55,19 +60,19 @@ function SP:UpdateManaTint()
 	-- the totem bar: each element's assigned totem (a flyout pick made in this fight first)
 	for element = 1, 4 do
 		local idx = self:AssignedIndex(element)
-		local spell = castName(idx and idx > 0 and self:GetTotemSpell(element, idx) or nil)
+		local spell = totemCast(idx and idx > 0 and self:GetTotemSpell(element, idx) or nil)
 		local btn = self.totemButtons and self.totemButtons[element]
 		paint(btn and btn.icon, spell, on)
 		paint(_G["ShamanPowerAutoTotem" .. element .. "Icon"], spell, on)
 		-- that element's flyout
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		if flyout and flyout.buttons then
-			for _, fb in ipairs(flyout.buttons) do paint(fb.icon, castName(fb.spellID), on) end
+			for _, fb in ipairs(flyout.buttons) do paint(fb.icon, totemCast(fb.spellID), on) end
 		end
 		-- (3.0.9.9) Totem Rows with Keep Flyouts on Main Totem Bar: the rows are copies, buttons of their own
 		local copies = self.RowsCopies and self:RowsCopies(element)
 		if copies then
-			for _, c in ipairs(copies) do paint(c.icon, castName(c.spellID), on) end
+			for _, c in ipairs(copies) do paint(c.icon, totemCast(c.spellID), on) end
 		end
 	end
 	-- the cooldown bar

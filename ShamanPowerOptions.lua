@@ -13658,3 +13658,341 @@ do
 		{ header = "test_header", name = "Test", keys = { "reactive_test" } },
 	})
 end
+
+-- (3.0.9.17, A111) Windfury Proc's own page: Settings > Alerts & Reminders > Windfury Proc (ShamanPower_WindfuryProc,
+-- WoW: Forever only: the page exists only there). Its font and outline: Appearance > Fonts & Textures > Windfury Proc.
+do
+	local SP = ShamanPower
+	if SPCompat and SPCompat.FOREVER then
+		local function db() local d = rawget(_G, "ShamanPowerWindfuryProcDB") return type(d) == "table" and d or nil end
+		local function opt(key, fallback)
+			local d = db()
+			if d and d[key] ~= nil then return d[key] end
+			local def = SP.WindfuryProcDefaults
+			if def and def[key] ~= nil then return def[key] end
+			return fallback
+		end
+		local function set(key, value)
+			local d = db()
+			if not d then return end
+			d[key] = value
+			if SP.UpdateWindfuryProcAppearance then SP:UpdateWindfuryProcAppearance() end
+		end
+		local function off() return not db() end
+		local function soundOff() return off() or not opt("playSound", true) end
+		local glowShapes, glowOrder = {}, {}
+		if SP.GlowShapeValues then glowShapes, glowOrder = SP:GlowShapeValues() end
+		local function shapeNow() return opt("glowShape") or (SP.opt and SP.opt.glowShape) or "default" end
+		local function icdOff() return off() or not opt("weapon", true) or opt("showICD", true) == false end
+		SP.options.args.fluffy.args.windfuryproc_section = { order = 19.7, type = "group", name = "|cff0070ddWindfury Proc|r", args = {
+			module_missing_note = {
+				order = 0.01, type = "description", width = "full",
+				name = "|cffffa040Windfury Proc is not loaded. These settings will not work and may not save. Turn on ShamanPower [Windfury Proc] in the AddOns list, then type /reload.|r",
+				hidden = function() return SP.WindfuryProcLoaded == true end,
+			},
+			wf_desc = {
+				order = 0.1, type = "description", width = "full", fontSize = "medium",
+				name = "An alert on your screen each time Windfury procs on you, from your weapon's Windfury Weapon or a Windfury Totem."
+					.. " It shows for a moment and plays a sound.\n",
+			},
+			wf_enabled = {
+				order = 1, type = "toggle", width = "full", name = "Enable Windfury Proc",
+				desc = "Show the alert each time Windfury procs on you",
+				disabled = off,
+				get = function() return opt("enabled", false) == true end,
+				set = function(_, v) set("enabled", v and true or false) end,
+			},
+			wf_header_procs = { order = 2, type = "header", name = "Procs" },
+			wf_weapon = {
+				order = 3, type = "toggle", width = "full", name = "Windfury Weapon Procs",
+				desc = "Show it when your weapon's Windfury Weapon procs",
+				disabled = off,
+				get = function() return opt("weapon", true) ~= false end,
+				set = function(_, v) set("weapon", v and true or false) end,
+			},
+			wf_totem = {
+				order = 4, type = "toggle", width = "full", name = "Windfury Totem Procs",
+				desc = "Show it when a Windfury Totem procs on you",
+				disabled = off,
+				get = function() return opt("totem", true) ~= false end,
+				set = function(_, v) set("totem", v and true or false) end,
+			},
+			wf_time = {
+				order = 5, type = "range", width = "full", name = "Time On Screen (seconds)",
+				desc = "How long it stays up after each proc. A proc while it shows keeps it up this long from that proc.",
+				min = 1, max = 3, step = 0.1,
+				disabled = off,
+				get = function() return opt("showTime", 1.5) end,
+				set = function(_, v) set("showTime", v) end,
+			},
+			-- (3.0.9.17) Windfury Weapon's internal cooldown, 1.5 seconds (WoW: Forever's spell data; Windfury Totem has
+			-- none), and its look: Ready Reminders' While On Cooldown rows, those that fit 1.5 seconds
+			wf_header_icd = { order = 6, type = "header", name = "Internal Cooldown" },
+			wf_icd = {
+				order = 6.1, type = "toggle", width = "full", name = "Show Internal Cooldown",
+				desc = "After a Windfury Weapon proc it can't proc again for 1.5 seconds. Its icon shows that time"
+					.. " running down: when it's done, it can proc again. The alert stays up until then."
+					.. " Windfury Totem has no internal cooldown.",
+				disabled = function() return off() or not opt("weapon", true) end,
+				get = function() return opt("showICD", true) ~= false end,
+				set = function(_, v) set("showICD", v and true or false) end,
+			},
+			wf_icd_sweep = {
+				order = 6.2, type = "select", width = 1.5, name = "Sweep",
+				desc = "Clock Sweep: the dark sweep round the icon. Color Fills In: the icon's color comes back as it runs.",
+				values = { radial = "Clock Sweep", vertical = "Color Fills In", none = "None" }, sorting = { "radial", "vertical", "none" },
+				disabled = icdOff,
+				get = function() return opt("icdSweep", "radial") end,
+				set = function(_, v) set("icdSweep", v) end,
+			},
+			wf_icd_direction = {
+				order = 6.3, type = "select", width = 1.5, name = "Sweep Direction",
+				desc = "The edge the color comes back from.",
+				values = { top = "From The Top", bottom = "From The Bottom" }, sorting = { "top", "bottom" },
+				hidden = function() return opt("icdSweep", "radial") ~= "vertical" end,
+				disabled = icdOff,
+				get = function() return opt("icdSweepDirection", "bottom") end,
+				set = function(_, v) set("icdSweepDirection", v) end,
+			},
+			wf_icd_bar = {
+				order = 6.4, type = "select", width = 1.5, name = "Progress Bar",
+				desc = "A thin bar that drains as it runs.",
+				values = { none = "None", below = "Below The Icon", above = "Above The Icon" }, sorting = { "none", "below", "above" },
+				disabled = icdOff,
+				get = function() return opt("icdBar", "none") end,
+				set = function(_, v) set("icdBar", v) end,
+			},
+			wf_icd_bar_height = {
+				order = 6.5, type = "range", width = "full", name = "Bar Height",
+				min = 2, max = 12, step = 1,
+				hidden = function() return opt("icdBar", "none") == "none" end,
+				disabled = icdOff,
+				get = function() return opt("icdBarHeight", 4) end,
+				set = function(_, v) set("icdBarHeight", v) end,
+			},
+			wf_icd_bar_color = {
+				order = 6.6, type = "color", width = "full", name = "Bar Color",
+				hidden = function() return opt("icdBar", "none") == "none" end,
+				disabled = icdOff,
+				get = function() local c = opt("icdBarColor") or {} return c.r or 0.3, c.g or 0.8, c.b or 1.0 end,
+				set = function(_, r, g, b) set("icdBarColor", { r = r, g = g, b = b }) end,
+			},
+			wf_icd_gray = {
+				order = 6.7, type = "toggle", width = "full", name = "Gray Out The Icon",
+				desc = "The icon gray while it can't proc.",
+				disabled = icdOff,
+				get = function() return opt("icdGray", false) == true end,
+				set = function(_, v) set("icdGray", v and true or false) end,
+			},
+			wf_icd_countdown = {
+				order = 6.8, type = "toggle", width = "full", name = "Show Countdown",
+				desc = "The seconds left, like 1.2.",
+				disabled = icdOff,
+				get = function() return opt("icdCountdown", true) ~= false end,
+				set = function(_, v) set("icdCountdown", v and true or false) end,
+			},
+			wf_icd_count_position = {
+				order = 6.85, type = "select", width = 1.5, name = "Countdown Position",
+				values = { center = "Center", top = "Top", bottom = "Bottom", below = "Below The Icon", above = "Above The Icon" },
+				sorting = { "center", "top", "bottom", "below", "above" },
+				hidden = function() return opt("icdCountdown", true) == false end,
+				disabled = icdOff,
+				get = function() return opt("icdCountdownPosition", "center") end,
+				set = function(_, v) set("icdCountdownPosition", v) end,
+			},
+			wf_icd_count_size = {
+				order = 6.9, type = "range", width = "full", name = "Countdown Text Size",
+				desc = "0: sized to the icon. Its font and outline: Appearance > Fonts & Textures > Windfury Proc.",
+				min = 0, max = 40, step = 1,
+				hidden = function() return opt("icdCountdown", true) == false end,
+				disabled = icdOff,
+				get = function() return opt("icdCountdownSize", 0) end,
+				set = function(_, v) set("icdCountdownSize", v) end,
+			},
+			wf_icd_count_colors = {
+				order = 6.95, type = "toggle", width = "full", name = "Color the Cooldown Numbers",
+				desc = "The countdown changes color as it runs: the Cooldown Numbers colors on Appearance > Colors & Borders. Off: white.",
+				hidden = function() return opt("icdCountdown", true) == false end,
+				disabled = icdOff,
+				get = function() return opt("icdCountdownColors", false) == true end,
+				set = function(_, v) set("icdCountdownColors", v and true or false) end,
+			},
+			wf_header_appearance = { order = 10, type = "header", name = "Appearance" },
+			wf_display_mode = {
+				order = 11, type = "select", width = 1.5, name = "Display Mode",
+				desc = "What it shows: the proc's icon, the word WINDFURY!, or both",
+				values = { icon = "Icon Only", both = "Icon + Text", text = "Text Only" }, sorting = { "icon", "both", "text" },
+				disabled = off,
+				get = function() return opt("displayMode", "icon") end,
+				set = function(_, v) set("displayMode", v) end,
+			},
+			wf_icon_size = {
+				order = 12, type = "range", width = "full", name = "Icon Size",
+				min = 32, max = 128, step = 1,
+				disabled = off,
+				get = function() return opt("iconSize", 64) end,
+				set = function(_, v) set("iconSize", v) end,
+			},
+			wf_opacity = {
+				order = 13, type = "range", width = "full", name = "Opacity",
+				min = 0.1, max = 1, step = 0.01, isPercent = true,
+				disabled = off,
+				get = function() return opt("opacity", 1) end,
+				set = function(_, v) set("opacity", v) end,
+			},
+			wf_text_size = {
+				order = 14, type = "range", width = "full", name = "Font Size",
+				desc = "The size of the word WINDFURY!. Its font and outline: Appearance > Fonts & Textures > Windfury Proc.",
+				min = 12, max = 48, step = 1,
+				disabled = off,
+				get = function() return opt("textSize", 24) end,
+				set = function(_, v) set("textSize", v) end,
+			},
+			wf_header_glow = { order = 20, type = "header", name = "Glow Effect" },
+			wf_show_glow = {
+				order = 21, type = "toggle", width = "full", name = "Show Glow",
+				desc = "A glow round the icon while it shows",
+				disabled = off,
+				get = function() return opt("showGlow", true) ~= false end,
+				set = function(_, v) set("showGlow", v and true or false) end,
+			},
+			-- (its own Glow Shape, as a Ready Reminder icon has: until one is picked it shows Appearance > Themes')
+			wf_glow_shape = {
+				order = 21.5, type = "select", width = 1.5, name = "Glow Shape",
+				desc = "The glow's shape: Square, Round or Proc Glow. Until you pick one it follows Appearance > Themes > Glow Shape.",
+				values = glowShapes, sorting = glowOrder,
+				disabled = function() return off() or not opt("showGlow", true) end,
+				get = function() return shapeNow() end,
+				set = function(_, v) set("glowShape", v) end,
+			},
+			wf_glow_color = {
+				order = 22, type = "color", width = "full", name = "Glow Color",
+				disabled = function() return off() or not opt("showGlow", true) end,
+				get = function() local c = opt("glowColor") or {} return c.r or 1, c.g or 0.8, c.b or 0 end,
+				set = function(_, r, g, b) set("glowColor", { r = r, g = g, b = b }) end,
+			},
+			wf_glow_thick = {
+				order = 22.5, type = "range", width = "full", name = "Glow Thickness",
+				desc = "How thick the Proc Glow ring is. It grows outward from the icon's edge.",
+				min = 0, max = 0.6, step = 0.01, isPercent = true,
+				hidden = function() return shapeNow() ~= "proc" end,
+				disabled = function() return off() or not opt("showGlow", true) end,
+				get = function() return opt("glowThick") or (SP.ProcGlowOut and SP:ProcGlowOut()) or 0.2 end,
+				set = function(_, v) set("glowThick", v) end,
+			},
+			wf_header_sound = { order = 30, type = "header", name = "Sound" },
+			wf_play_sound = {
+				order = 31, type = "toggle", width = "full", name = "Play Sound",
+				desc = "Play a sound on each proc (at most once a second)",
+				disabled = off,
+				get = function() return opt("playSound", true) ~= false end,
+				set = function(_, v) set("playSound", v and true or false) end,
+			},
+			wf_sound = {
+				order = 32, type = "select", dialogControl = "LSM30_Sound", width = "double", name = "Alert Sound",
+				desc = "The sound it plays on a proc",
+				values = AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound or {},
+				disabled = soundOff,
+				get = function() return opt("soundName", "Raid Warning") end,
+				set = function(_, v) set("soundName", v) end,
+			},
+			wf_sound_volume = {
+				order = 33, type = "range", width = "full", name = "Sound Volume",
+				min = 0, max = 100, step = 1,
+				disabled = soundOff,
+				get = function() return opt("soundVolume", 100) end,
+				set = function(_, v) set("soundVolume", v) end,
+			},
+			wf_header_position = { order = 40, type = "header", name = "Position" },
+			wf_move = {
+				order = 41, type = "execute", width = 1.5, name = "Move Windfury Proc",
+				desc = "Unlock UI on it: drag it where you want it, then Done. Turn Windfury Proc on first.",
+				disabled = function() return off() or not opt("enabled", false) end,
+				func = function() SP:UnlockModuleFrames("windfury") end,
+			},
+			wf_test = {
+				order = 42, type = "execute", width = 1.5, name = "Test Windfury Proc",
+				desc = "Show it once, as a proc does, with its sound",
+				disabled = off,
+				func = function() if SP.WindfuryProcTest then SP:WindfuryProcTest() end end,
+			},
+		} }
+	end
+end
+
+-- (3.0.9.17, A117) Frame Buff Indicators' own page: Settings > Group Tools > Frame Buff Indicators (the module
+-- ShamanPower_HealingTracker, WoW: Forever only: the page exists only there): Riptide and Ancestral Healing on the
+-- party and raid frames, each with its own look. Its font and outline: Appearance > Fonts & Textures > Frame Buff
+-- Indicators.
+do
+	local SP = ShamanPower
+	if SPCompat and SPCompat.FOREVER then
+		local function db() local d = rawget(_G, "ShamanPowerHealingTrackerDB") return type(d) == "table" and d or nil end
+		-- sub: a buff's own table ("riptide", "ancestral"); nil: the module's own settings
+		local function opt(key, fallback, sub)
+			local d, def = db(), SP.HealingTrackerDefaults
+			if sub then d, def = d and d[sub], def and def[sub] end
+			if type(d) == "table" and d[key] ~= nil then return d[key] end
+			if type(def) == "table" and def[key] ~= nil then return def[key] end
+			return fallback
+		end
+		local function set(key, value, sub)
+			local d = db()
+			if not d then return end
+			if sub then
+				if type(d[sub]) ~= "table" then d[sub] = {} end
+				d = d[sub]
+			end
+			d[key] = value
+			if SP.UpdateHealingTrackerAppearance then SP:UpdateHealingTrackerAppearance() end
+		end
+		local function off() return not db() end
+		local function idle() return off() or not opt("enabled", false) end
+		local page = { order = 19.8, type = "group", name = "|cff0070ddFrame Buff Indicators|r", args = {
+			module_missing_note = {
+				order = 0.01, type = "description", width = "full",
+				name = "|cffffa040Frame Buff Indicators is not loaded. These settings will not work and may not save. Turn on ShamanPower [Frame Buff Indicators] in the AddOns list, then type /reload.|r",
+				hidden = function() return SP.HealingTrackerLoaded == true end,
+			},
+			ht_desc = {
+				order = 0.1, type = "description", width = "full", fontSize = "medium",
+				name = "Your Riptide and Ancestral Healing on WoW's own party and raid frames: an icon on each player who has"
+					.. " one, darkening as it runs out, with the seconds left. Each has its own size and spot. It works in fights.\n",
+			},
+			ht_enabled = {
+				order = 1, type = "toggle", width = "full", name = "Enable Frame Buff Indicators",
+				desc = "Show your Riptide and Ancestral Healing on the party and raid frames",
+				disabled = off,
+				get = function() return opt("enabled", false) == true end,
+				set = function(_, v) set("enabled", v and true or false) end,
+			},
+			ht_party = {
+				order = 3, type = "toggle", width = "full", name = "Party Frames",
+				desc = "On WoW's raid-style party frames",
+				disabled = idle,
+				get = function() return opt("party", true) ~= false end,
+				set = function(_, v) set("party", v and true or false) end,
+			},
+			ht_raid = {
+				order = 4, type = "toggle", width = "full", name = "Raid Frames",
+				desc = "On WoW's raid frames",
+				disabled = idle,
+				get = function() return opt("raid", true) ~= false end,
+				set = function(_, v) set("raid", v and true or false) end,
+			},
+		} }
+		-- (the owner, 11-18: "more like ready reminders and all the others not just endless toggles") each buff's own
+		-- settings are in its icon's right-click menu (ShamanPower_Config/HealingIcons.lua), as Shield Charges' are
+		page.args.healingIcons = { type = "description", width = "full", name = " ",
+			desc = "Riptide, Ancestral Healing: Icon Size, Position, Offset X, Offset Y, Show Sweep, Show Time Left, Time Text Size" }
+		SP.options.args.fluffy.args.healingtracker_section = page
+		SP.OptionCustomRow = SP.OptionCustomRow or {}
+		SP.OptionCustomRow[page.args.healingIcons] = "healingIcons"
+		SP.OrderSettingsBands(page, {
+			{ keys = { "module_missing_note" } },   -- a warning stays on top
+			{ header = "buffs_header", name = "Buffs", keys = { "healingIcons" } },
+			{ keys = { "ht_enabled", "ht_desc" } },   -- under the pictures (every icon page, 2026-10-17)
+			{ header = "frames_header", name = "Frames", keys = { "ht_party", "ht_raid" } },
+		})
+	end
+end

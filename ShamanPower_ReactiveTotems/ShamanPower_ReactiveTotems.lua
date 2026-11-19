@@ -567,7 +567,9 @@ function SP:CreateReactiveTotemFrame(totemId)
 			end
 			if not ShamanPower_ReactiveTotems.locked then
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("ALT+drag to move | Right-click for options", 0.5, 0.5, 0.5)
+				-- (3.0.9.17) the right-click settings only while the alerts are being placed
+				local placing = SP.reactivePositioningMode or (SP.IsMasterUnlocked and SP:IsMasterUnlocked())
+				GameTooltip:AddLine(placing and "ALT+drag to move | Right-click for options" or "ALT+drag to move", 0.5, 0.5, 0.5)
 			end
 			GameTooltip:Show()
 		end
@@ -579,7 +581,9 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	-- Click handlers
 	frame:SetScript("OnClick", function(self, button)
-		if button == "RightButton" then
+		-- (3.0.9.17, the owner) its settings only while the alerts are being placed (Show All (Position), Unlock UI):
+		-- outside it a right-click does nothing (it opened the settings in the middle of play)
+		if button == "RightButton" and (SP.reactivePositioningMode or (SP.IsMasterUnlocked and SP:IsMasterUnlocked())) then
 			-- Open Look & Feel settings
 			if ShamanPowerConfig then
 				ShamanPowerConfig:Open({ "fluffy", "reactivetotems_section" })

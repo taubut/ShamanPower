@@ -173,15 +173,16 @@ local function resolveInSlot(allowed, spellID)
 	-- client shout "Only Air totems can go in that slot" on every assignment
 	-- change before the first Air totem was learned.
 	if not allowed then return nil end
-	if allowed[spellID] then return spellID end
-	-- another rank of the same spell, by ID, highest first (a rank's name can
-	-- differ from the first rank's in some languages)
+	-- its ranks, by ID, highest first (a rank's name can differ from the first rank's in some languages).
+	-- (3.0.9.17) Before the ID itself: when the slot lists a lower rank too, the highest one is the one
+	-- the Call drops (a Discord report: Searing and Windfury came down at rank 1)
 	local family = SPCompat.SpellRanks(spellID)
 	if family then
 		for index = #family, 1, -1 do
 			if allowed[family[index]] then return family[index] end
 		end
 	end
+	if allowed[spellID] then return spellID end
 	local want = spellName(spellID)
 	if issecretvalue(want) or not want then return nil end
 	for id in pairs(allowed) do
@@ -243,7 +244,9 @@ function SP:WriteTotemSet(page, spells)
 				local spellID = resolveInSlot(allowedInSlot(element), want)
 				if spellID then
 					local kind, cur = GetActionInfo(action)
-					if not (kind == "spell" and sameSpell(cur, spellID)) then
+					-- (3.0.9.17) the very ID, not just the same totem: a lower rank there is brought up to the highest
+					-- (before, "the same totem already there" kept a rank filled in while leveling)
+					if not (kind == "spell" and cur == spellID) then
 						writeSlot(action, spellID)
 						written = written + 1
 					end
@@ -261,6 +264,39 @@ function SP:WriteTotemSet(page, spells)
 		state.actual = self:ReadTotemSet(page)
 	end
 	return written, skipped
+end
+
+-- (3.0.9.17, a Discord report: Call of the Elements dropped Searing and Windfury at rank 1) Every Call's slots hold the
+-- highest rank you know of their totem: a slot filled while only a lower rank was known (leveling) is brought up when
+-- the next rank is learned, on all three Calls, whatever Call of the Elements Follows My Assignments says (the totem
+-- stays the one picked, only its rank ID changes). Out of combat; not while switched off.
+function SP:TopRankTotemSets()
+	if not haveAPI() or not self.opt or self:IsOff() or InCombatLockdown() then return end
+	local pages = self:KnownTotemSetPages()
+	for page = 1, 3 do
+		if page == 1 or pages[page] then
+			local upgraded = false
+			for element = 1, 4 do
+				local okSlot, action = pcall(setActionSlot, page, element)
+				if okSlot and action then
+					local ok, kind, cur = pcall(GetActionInfo, action)
+					if ok and not (issecretvalue and (issecretvalue(kind) or issecretvalue(cur)))
+						and kind == "spell" and type(cur) == "number" and cur > 0 and SPCompat.SpellRanks(cur) then
+						local top = resolveInSlot(allowedInSlot(element), cur)
+						if top and top ~= cur and sameSpell(top, cur) then
+							writeSlot(action, top)
+							upgraded = true
+						end
+					end
+				end
+			end
+			if upgraded then
+				if page == 1 then page1Actual = readPage1() or page1Actual end   -- (a rank, not a pick of the player's)
+				local state = boundPages[page]
+				if state and state.actual then state.actual = self:ReadTotemSet(page) end
+			end
+		end
+	end
 end
 
 -- { [element] = spellID } from the player's current assignments (Drop All excludes respected).
@@ -782,8 +818,7 @@ local function castNameFor(element, idx)
 	if not idx or idx <= 0 then return "" end
 	local id = SP:GetTotemSpell(element, idx)
 	if not id then return "" end
-	local name = GetSpellInfo(id)
-	if SPCompat.HasTotemCastAliases(id) then name = SPCompat.TotemCastName(id) end
+	local name = SPCompat.TotemCastSpell(id, GetSpellInfo(id))   -- (3.0.9.17: its picked rank, as the bar's button)
 	return name or ""
 end
 
@@ -1605,6 +1640,7 @@ ef:SetScript("OnEvent", function(_, event, slot)
 			SP:CacheTotemSetPages()
 			if not SP:HasTotemBar() then return end
 			if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+			SP:TopRankTotemSets()   -- (3.0.9.17) a rank learned before this fix, or on another addon setup
 			QueueBoundRefresh()
 		end)
 		return
@@ -1655,6 +1691,7 @@ ef:SetScript("OnEvent", function(_, event, slot)
 		if not SP.opt then return end
 		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
 		SP:ApplyEarlyCallPicks()   -- (A98) a Call just learned: the totems picked for it early
+		SP:TopRankTotemSets()   -- (3.0.9.17) a new rank learned: every Call drops it
 		QueueBoundRefresh()
 	end
 end)
@@ -1665,5 +1702,6 @@ SP:OnOnOff(function(off)
 	if off or not SP.opt or not SP:HasTotemBar() then return end
 	if SP.totemSetsAdoptPending and SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
 	SP:SyncTotemSetFromAssignments()
+	SP:TopRankTotemSets()   -- (3.0.9.17) a rank learned while switched off
 	QueueBoundRefresh()
 end)

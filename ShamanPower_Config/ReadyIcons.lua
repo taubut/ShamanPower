@@ -15,7 +15,7 @@
 --
 -- SP:ReadyReminderOpenIconMenu(key): the settings window on the Ready Reminders
 -- page, with that icon's menu open once the row is drawn (right-click an icon on
--- screen, or a Ready Reminder box in Unlock UI). The menu hangs from the icon, so
+-- screen while Move the Icons is on, or a Ready Reminder box in Unlock UI). The menu hangs from the icon, so
 -- it moves with the window.
 local _, ns = ...
 local Core = ns.Core
@@ -235,6 +235,18 @@ local function OnOffRow(key, text, opt, onByDefault, pic)
 			}
 		end,
 	}
+end
+-- (3.0.9.17, A116) Shield: Show is Only When Missing (as it was built, the default) or Always (the icon stays, its
+-- charges on it: Show Charge Count, Count Position and Show Charge Bar come in under it)
+local SHIELD_SHOWS = { { "missing", "Only When Missing" }, { "always", "Always" } }
+local SHIELD_COUNT_POS = { { "corner", "Bottom Right" }, { "center", "Center" } }
+local function ShieldShowRow(key)
+	local row = ChoiceRow(key, "Show", "shieldShow", SHIELD_SHOWS, "missing")
+	row.words = "when your shield's icon is on screen"
+	row.tip = "Only When Missing: Shield shows while neither Lightning Shield nor Water Shield is on you and hides while one is."
+		.. " Always: it stays on screen, with your shield's charges on it while one is on you. Its icon is the shield you had on last."
+		.. ((SPCompat and SPCompat.FOREVER) and "\n\nIn a fight it shows the moment your shield is gone once ShamanPower's Cooldown Manager setup is done (Shield Charges > Set Up The Cooldown Manager). Without it, it shows when the fight ends." or "")
+	return row
 end
 local function SliderRow(key, text, opt, lo, hi, step, fallback, format, isPercent, pic)
 	return {
@@ -465,7 +477,7 @@ local function AppearanceRows(key, entry)
 			t[#t + 1] = row
 		end
 	else
-		local moment = entry.weaponSet and "While Holding" or entry.imbue and "When It's Gone" or entry.stacks and "At 5 Stacks"
+		local moment = entry.weaponSet and "While Holding" or (entry.imbue or entry.shield) and "When It's Gone" or entry.stacks and "At 5 Stacks"
 			or entry.proc and "When It Procs" or "When Ready"
 		t[#t + 1] = { text = "No glow yet: pick one under " .. moment .. " > Effect", disabled = true,
 			tip = "This icon's effect has no glow, so there is no glow look to set. Pick Glow or Glow + Pulse under " .. moment .. " > Effect." }
@@ -1039,6 +1051,7 @@ local function MenuItems(key)
 		or entry.imbue and { text = "Show", words = "only while an imbue is missing",
 		  value = function() return "Only When Missing", false end,
 		  tip = "Weapon Imbue shows while an imbue is missing (the main hand; with two weapons, either hand) and hides while your imbues are on." }
+		or entry.shield and ShieldShowRow(key)   -- (3.0.9.17, A116)
 		or { text = "Show", words = "when the icon is on screen",
 		  value = function() return LabelOf(SHOW_CHOICES, SP:ReadyReminderShowOf(key)), false end,
 		  tip = "Only When Ready: the icon comes up when the spell is ready and goes while it cools. Only While On Cooldown: the other way round. While Ready And On Cooldown: always there, with the cooldown sweep and countdown over it; Dimmed: faded while it cools (While On Cooldown sets how).",
@@ -1058,6 +1071,20 @@ local function MenuItems(key)
 			end
 			return list
 		  end }
+	-- (3.0.9.17, A116) Shield with Show: Always: the cooldown bar's charge count and charge bar on the icon
+	if entry.shield and (Opt(key, "shieldShow") or "missing") == "always" then
+		local count = OnOffRow(key, "Show Charge Count", "shieldCount", true, Pic.PLAIN)
+		count.tip = "Your shield's charges as a number on the icon: green 3, yellow 2, red 1."
+		items[#items + 1] = count
+		if Opt(key, "shieldCount") ~= false then
+			local pos = ChoiceRow(key, "Count Position", "shieldCountPos", SHIELD_COUNT_POS, "corner")
+			pos.tip = "Bottom Right: small, over the charge bar, as on the cooldown bar. Center: large in the middle of the icon, as Shield Charges shows it."
+			items[#items + 1] = pos
+		end
+		local bar = OnOffRow(key, "Show Charge Bar", "shieldBar", true, Pic.PLAIN)
+		bar.tip = "A bar inside the icon along its bottom, one piece per charge, as on the cooldown bar."
+		items[#items + 1] = bar
+	end
 	local combat = OnOffRow(key, "Only In Combat", "onlyInCombat", nil, Pic.PLAIN)   -- (on: the icon as a fight shows it)
 	combat.words = "only in fights; out of one it hides, or fades"
 	items[#items + 1] = combat
@@ -1091,10 +1118,11 @@ local function MenuItems(key)
 	items[#items + 1] = { separator = true }
 	-- what it does at its moments
 	items[#items + 1] = { text = "Effects & Sound", label = true }
-	local readyName = entry.weaponSet and "While Holding" or entry.imbue and "While Imbue Is Missing" or entry.stacks and "At 5 Stacks"
-		or entry.proc and "When It Procs" or "When Ready"
+	local readyName = entry.weaponSet and "While Holding" or entry.imbue and "While Imbue Is Missing" or entry.shield and "While Shield Is Missing"
+		or entry.stacks and "At 5 Stacks" or entry.proc and "When It Procs" or "When Ready"
 	items[#items + 1] = Group(readyName, function() return ReadyRows(key, entry, readyName) end,
 		entry.weaponSet and "the effect while you hold a set" or entry.imbue and "the effect while an imbue is missing"
+		or entry.shield and "the effect while your shield is missing"
 		or entry.stacks and "the effect at 5 stacks" or entry.proc and "the effect while it is on you" or "the effect the moment it's ready")
 	if entry.weaponSet then   -- (A28)
 		items[#items + 1] = Group("On A Weapon Swap", function() return SwapRows(key, entry) end, "a sound, the Ready Flash")
@@ -1104,16 +1132,17 @@ local function MenuItems(key)
 		items[#items + 1] = Group("When The Cooldown Resets", function() return ResetRows(key, entry) end,
 			"a tank's dodge or parry resets it: burst, word, flash, sound")
 	end
-	if not entry.imbue and not entry.weaponSet and not entry.stacks and not entry.proc then
+	if not entry.imbue and not entry.shield and not entry.weaponSet and not entry.stacks and not entry.proc then
 		items[#items + 1] = Group("Out of Range", function() return RangeRows(key, entry) end,
 			"how it looks when your target is out of range")
 	end
-	if not entry.weaponSet and not entry.stacks and not entry.proc then   -- (3.0.9.2)
+	if not entry.weaponSet and not entry.stacks and not entry.proc and not entry.shield then   -- (3.0.9.2)
 		items[#items + 1] = Group("When Out of Mana", function() return OomRows(key, entry) end,
 			"how it looks while you can't afford it")
 	end
 	items[#items + 1] = Group("Sound", function() return SoundRows(key, entry) end,
 		entry.weaponSet and "the sound a swap plays" or entry.imbue and "the sound when an imbue goes missing"
+		or entry.shield and "the sound when your shield goes missing"
 		or entry.stacks and "the sound at 5 stacks" or entry.proc and "the sound when it procs" or "the sound the moment it's ready")
 	items[#items + 1] = { separator = true }
 	-- where it sits (Rows placement: the row it is on; Not On A Row: off your screen)

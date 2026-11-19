@@ -203,6 +203,13 @@ local SHOW_CHOICES = {
 	{ "fightsUp", "In Combat While Shield Is Active", nil, { kind = "none" } },
 	{ "fights", "In Combat (Gray While Shield Is Missing)", nil, { kind = "none" } },
 }
+-- (3.0.9.17, a Discord ask) Lightning and Water Shield also: only while no shield is on you (its gray look, nothing
+-- while one is up), and the same in fights only. Not Earth Shield: in a fight the game hides it on the player you
+-- put it on, so its going can't be seen there.
+local SHOW_CHOICES_PLAYER = {}
+for _, c in ipairs(SHOW_CHOICES) do SHOW_CHOICES_PLAYER[#SHOW_CHOICES_PLAYER + 1] = c end
+SHOW_CHOICES_PLAYER[#SHOW_CHOICES_PLAYER + 1] = { "missing", "Only When Missing", nil, { kind = "gray" } }
+SHOW_CHOICES_PLAYER[#SHOW_CHOICES_PLAYER + 1] = { "fightsMissing", "In Combat, Only When Missing", nil, { kind = "none" } }
 local NUMPOS_CHOICES = { { "center", "Center" }, { "corner", "Bottom-Right Corner" } }
 local LOOKS = { { "bar", "Bar" }, { "glow", "Glowing Orbs" }, { "icon", "Shield Icon Orbs" }, { "flat", "Flat Orbs" },
 	{ "storm", "Storm Orbs" } }
@@ -303,6 +310,8 @@ local function ShowTip(s)
 	end
 	return "When this shield's charges are on screen. Gray: its icon or number grayed out while it's not up."
 		.. " With no shield up, only the last one you had shows its gray look."
+		.. " Only When Missing: only that gray look, while no shield is on you, and nothing while one is."
+		.. ((SPCompat and SPCompat.FOREVER) and " In a fight it shows the moment your shield is gone once the Cooldown Manager is set up (Set Up The Cooldown Manager on this page); without it, when the fight ends." or "")
 end
 
 local function IconRows(s)
@@ -639,7 +648,7 @@ local function MenuItems(item)
 			Row:Changed(false)
 		end }
 	-- when it shows
-	r[#r + 1] = ChoiceName(s, "Show", "show", SHOW_CHOICES, ShowTip(s), "up")
+	r[#r + 1] = ChoiceName(s, "Show", "show", (s == ES) and SHOW_CHOICES or SHOW_CHOICES_PLAYER, ShowTip(s), "up")
 	r[#r].words = "when this shield's charges are on screen"
 	r[#r + 1] = SEP
 	-- how it looks: flat, under a heading (the menus never nest deeper: a label row names the group)

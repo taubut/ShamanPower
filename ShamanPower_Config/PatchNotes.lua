@@ -9,6 +9,42 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.17",
+		date = "in progress",
+		headline = "Totem ranks, Windfury Proc and Frame Buff Indicators",
+		new = {
+			{ h = "Totem Rank", icon = "Interface\\Icons\\Spell_Fire_SearingTotem",
+			  b = "Pick the rank a totem drops at in its right-click menu, Rank 1 to save mana for example. The bar, its flyout, Drop All, Quick Totems and the SP_ macros all use it.",
+			  path = "Settings > Bars > Totem Bar > Bar", open = { "buttons", "auto_button" },
+			  card = true, s = "Totem Rank: drop a totem at a lower rank." },
+			{ h = "Windfury Proc", icon = "Interface\\Icons\\Spell_Nature_Cyclone", client = "forever",
+			  b = "Shows when Windfury Weapon or Windfury Totem procs, with its own glow, sound and font, and Windfury Weapon's internal cooldown on its icon. Off until you turn it on.",
+			  path = "Settings > Alerts & Reminders > Windfury Proc", open = { "fluffy", "windfuryproc_section" },
+			  card = true, cardClient = "forever", s = "Windfury Proc: see each Windfury proc." },
+			{ h = "Frame Buff Indicators", icon = 252995, client = "forever",
+			  b = "Your Riptide and Ancestral Healing on WoW's party and raid frames: the icon, a sweep and the time left, each buff with its own size and spot. Off until you turn it on.",
+			  path = "Settings > Group Tools > Frame Buff Indicators", open = { "fluffy", "healingtracker_section" },
+			  card = true, cardClient = "forever", s = "Frame Buff Indicators: your Riptide on raid frames." },
+			{ h = "Shield Reminder", icon = "Interface\\Icons\\Spell_Nature_LightningShield",
+			  b = "A Shield reminder on the Spells row: it shows while neither Lightning Shield nor Water Shield is on you. Set its Show to Always to keep it up with the shield's charges on it. Off until you click it.",
+			  path = "Settings > Alerts & Reminders > Ready Reminders", open = { "fluffy", "readyreminders_section" },
+			  card = true, s = "A Shield reminder in Ready Reminders." },
+		},
+		changes = {
+			"After updating, fully close and restart the game once: 3.0.9.17 adds new files that a /reload does not load.",
+			"Shield Charges: two new Show choices for Lightning Shield and Water Shield: Only When Missing, and In Combat, Only When Missing. The shield shows grayed out while it's gone and doesn't show at all while it's on you.",
+		},
+		fixes = {
+			"Ready Reminders: a profile still didn't keep its own Ready Reminders layout. Each profile now keeps its whole layout: which reminders show, where each one sits, their sizes, the rows and the order, after a switch and at login.",
+			"Call of the Elements (WoW: Forever): it could drop Searing Totem and Windfury Totem at rank 1 when you'd set them up before learning a higher rank. It always drops your highest rank now, on all three Calls.",
+			"Ready Reminders (WoW: Forever): Maelstrom Weapon's sound at 5 stacks stopped after Shield Charges' setup reloaded your game (for example after you learned Water Shield). It stays on now.",
+			"Totem Bar: a flyout could stay out after your mouse left the bar across your Quick Totems. It closes now.",
+			"Ready Reminders and Reactive Totems: right-clicking a reminder or an alert out of a fight opened its settings. A right-click only does that while you're placing them now.",
+			"Frame Edges (WoW: Forever): switching to a profile without Frame Edges could show an error. It's gone.",
+		},
+		thanks = "Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii and riseandshine for the reports.",
+	},
+	{
 		v = "3.0.9.16",
 		date = "2026-11-16",
 		headline = "Maelstrom's sound in fights, and profiles that switch everything",

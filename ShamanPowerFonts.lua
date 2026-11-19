@@ -65,6 +65,12 @@ SP.FONT_AREAS = {
 	{ key = "alerts",  label = "Alerts and Reminders",        desc = "Expiring Alerts, Tremor Reminder, Ready Reminders and Reactive Totems text." },
 	{ key = "labels",  label = "Names and Labels",            desc = "Party names, range counters, Totem Range, Coverage, Totem Plates and other small labels." },
 }
+-- (3.0.9.17) Windfury Proc's own, after Alerts and Reminders (WoW: Forever only, as the module is)
+if SPCompat and SPCompat.FOREVER then
+	table.insert(SP.FONT_AREAS, 4, { key = "windfury", label = "Windfury Proc", desc = "The Windfury Proc alert's WINDFURY! word and its internal cooldown countdown." })
+	-- (3.0.9.17) Frame Buff Indicators' own (the module ShamanPower_HealingTracker): the seconds left on its icons
+	table.insert(SP.FONT_AREAS, 5, { key = "healing", label = "Frame Buff Indicators", desc = "The time left on Frame Buff Indicators' icons on your party and raid frames." })
+end
 
 SP.FONT_OUTLINES = {
 	{ value = "",             label = "None" },

@@ -1355,6 +1355,8 @@ function ShamanPower:OnCombatEnd()
 		self.macroUpdatePending = false
 		self:UpdateSPMacros()
 	end
+	-- (3.0.9.17) a totem rank picked (or a profile switched) during the fight
+	if self.totemCastsPending then self:RefreshTotemCasts() end
 end
 
 -- The Earth Shield macro's body: its tooltip line names the spell in the game's own
@@ -1486,6 +1488,8 @@ function ShamanPower:OnProfileChanged()
 	-- the game-drawn shield layer keeps the settings it was built with: the new profile's
 	-- sweep, count, bar and text (after the fight if this runs in one)
 	if self.RebuildShieldChargeContainer then self:RebuildShieldChargeContainer() end
+	-- (3.0.9.17) the new profile's totem ranks, when either profile has any
+	if self._totemRanksWritten or type(self.opt.totemRank) == "table" then self:RefreshTotemCasts() end
 end
 
 function ShamanPower:BindKeys()
@@ -3847,6 +3851,62 @@ function ShamanPower:GetTwistTotemName()
 		return SPCompat.SpellName(spellID, "Grace of Air Totem")
 	end
 	return "Grace of Air Totem"
+end
+
+-- what the twist casts for its second totem (that totem's picked rank too)
+function ShamanPower:GetTwistTotemCast()
+	local spellID = self.AirTotems[self.opt.twistTotem or 2]
+	return spellID and SPCompat.TotemCastSpell(spellID) or self:GetTwistTotemName()
+end
+
+-- ----------------------------------------------------------------------------
+-- (3.0.9.17) Totem ranks: Rank in a totem's right-click menu on Totem Bar > Bar (a Discord ask, 11-19:
+-- Windfury and Searing Totem at rank 1 to save mana). opt.totemRank = { [the totem's rank-1 spell ID] =
+-- the rank number }, in the profile; missing = Highest. Every place ShamanPower casts the totem follows it
+-- (SPCompat.TotemCastSpell): the bar, its flyouts, Drop All, the macros, Quick Totems, pop-outs, the twist.
+-- ----------------------------------------------------------------------------
+function ShamanPower:TotemRankChoice(id)
+	local t = self.opt and self.opt.totemRank
+	local v = type(t) == "table" and t[id]
+	return type(v) == "number" and v or nil
+end
+SPCompat.TotemRankChoice = function(id) return ShamanPower:TotemRankChoice(id) end
+
+-- rank: a number, or nil / 0 for Highest
+function ShamanPower:SetTotemRank(id, rank)
+	local o = self.opt
+	if not o or type(id) ~= "number" then return end
+	if rank == 0 then rank = nil end
+	if type(o.totemRank) ~= "table" then
+		if rank == nil then return end
+		o.totemRank = {}
+	end
+	o.totemRank[id] = rank
+	if not next(o.totemRank) then o.totemRank = nil end
+	self:RefreshTotemCasts()
+end
+
+-- Every totem cast written again: a rank picked, a profile switched, a rank learned. Secure buttons change
+-- only out of combat: a change made in a fight is written when it ends.
+function ShamanPower:RefreshTotemCasts()
+	if InCombatLockdown() then self.totemCastsPending = true return end
+	self.totemCastsPending = nil
+	self._totemRanksWritten = (type(self.opt and self.opt.totemRank) == "table") or nil
+	if self:IsOff() then return end
+	self:RecreateTotemFlyouts()
+	self:UpdateMiniTotemBar()
+	self:UpdateTotemButtons()
+	if self.poppedOutFrames then
+		for _, frame in pairs(self.poppedOutFrames) do
+			if frame.button and frame.spellID and frame.totemIndex and frame.spellName then
+				frame.button:SetAttribute("spell1", SPCompat.TotemCastSpell(frame.spellID, frame.spellName))
+			end
+		end
+	end
+	self:UpdateDropAllButton()   -- (written again when its text changed)
+	self:UpdateSPMacros()
+	if self.QuickTotemsChanged then self:QuickTotemsChanged() end
+	if self.UpdateManaTint then self:UpdateManaTint() end
 end
 
 function ShamanPower:GetTwistTotemIcon()
@@ -6907,7 +6967,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	-- Set up spell casting
 	if spellName then
 		btn:SetAttribute("type1", "spell")
-		btn:SetAttribute("spell1", spellName)
+		btn:SetAttribute("spell1", SPCompat.TotemCastSpell(spellID, spellName))   -- (3.0.9.17) its picked rank
 	end
 
 	-- Right-click to cast Totemic Call (destroys all totems)
@@ -6919,7 +6979,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		if spellID then
-			GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(spellID) or spellID)
+			GameTooltip:SetSpellByID(SPCompat.TotemTooltipID(spellID) or spellID)   -- (3.0.9.17: its picked rank)
 		end
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine("|cff00ff00Middle-click:|r Return to bar", 1, 1, 1)
@@ -7945,8 +8005,8 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Set up spell casting (same logic as XML buttons)
 			if element == 4 and self.opt.enableTotemTwisting then
-				local wfName = GetSpellInfo(8512) or "Windfury Totem"
-				local twistName = self:GetTwistTotemName()
+				local wfName = SPCompat.TotemCastSpell(8512, "Windfury Totem")   -- (3.0.9.17: each one's picked rank)
+				local twistName = self:GetTwistTotemCast()
 				btn:SetAttribute("type1", "macro")
 				btn:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
 				-- Set initial twist icon (Windfury) if icon hasn't been set yet by twist timer
@@ -7955,7 +8015,7 @@ function ShamanPower:UpdateTotemButtons()
 				end
 			elseif spellName then
 				btn:SetAttribute("type1", "spell")
-				btn:SetAttribute("spell1", spellName)
+				btn:SetAttribute("spell1", SPCompat.TotemCastSpell(spellID, spellName))   -- (3.0.9.17) its picked rank
 			else
 				-- Nothing assigned: keep the cast type, so a totem assigned from the flyout
 				-- mid-fight (which can only write spell1) still casts, on both clients. A
@@ -7977,10 +8037,7 @@ function ShamanPower:UpdateTotemButtons()
 				-- The corner-totem option makes right-click cast the assigned totem
 				local assignedIndex = assignments[element] or 0
 				local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
-				local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
-				if SPCompat.HasTotemCastAliases(assignedSpellID) then
-					assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
-				end
+				local assignedSpellName = assignedSpellID and SPCompat.TotemCastSpell(assignedSpellID, GetSpellInfo(assignedSpellID))
 				if assignedSpellName then
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", assignedSpellName)
@@ -8926,8 +8983,8 @@ function ShamanPower:CreateTotemFlyout(element)
 
 	for totemIndex, spellID in pairs(totems) do
 		-- Ask knowledge by ID; the localized name below is used for casting.
-		local spellName = GetSpellInfo(spellID)
-		if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
+		-- (3.0.9.17) its picked rank: the cast, the assign action and mySpell all carry the same text the bar's button does
+		local spellName = SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID))
 		local isKnown = PlayerKnowsTotem(spellID)
 		-- Talent-gated totems (Totem of Wrath, Mana Tide) always get a button, so
 		-- a respec can show/hide them through the normal flyout filter with no
@@ -9072,7 +9129,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:HookScript("OnEnter", function(self)
 				if not ShamanPower.opt.ShowTooltips then return end
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-				GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(spellID) or spellID)
+				GameTooltip:SetSpellByID(SPCompat.TotemTooltipID(spellID) or spellID)   -- (3.0.9.17: its picked rank)
 				GameTooltip:AddLine(" ")
 				if self.spPullMode and ShamanPower.RowPullTooltipLines then
 					ShamanPower:RowPullTooltipLines(self)   -- (in a Totem Row that pulls totems back)
@@ -9803,8 +9860,7 @@ function ShamanPower:RefreshTotemFlyouts()
 			-- Update spell bindings for any new spells learned
 			local totems = self.Totems[element]
 			for _, btn in ipairs(flyout.buttons) do
-				local spellName = GetSpellInfo(btn.spellID)
-				if SPCompat.HasTotemCastAliases(btn.spellID) then spellName = SPCompat.TotemCastName(btn.spellID) end
+				local spellName = SPCompat.TotemCastSpell(btn.spellID, GetSpellInfo(btn.spellID))   -- (3.0.9.17: its picked rank)
 				if spellName then
 					btn:SetAttribute("spell", spellName)
 				end
@@ -10026,10 +10082,7 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				elseif useRightClickAssigned then
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
-					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
-					if SPCompat.HasTotemCastAliases(assignedSpellID) then
-						assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
-					end
+					local assignedSpellName = assignedSpellID and SPCompat.TotemCastSpell(assignedSpellID, GetSpellInfo(assignedSpellID))
 					if assignedSpellName then
 						btn:SetAttribute("type2", "spell")
 						btn:SetAttribute("spell2", assignedSpellName)
@@ -10072,9 +10125,7 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
 					if assignedSpellName then
 						btn:SetAttribute("type2", "spell")
-						if SPCompat.HasTotemCastAliases(assignedSpellID) then
-							assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
-						end
+						assignedSpellName = SPCompat.TotemCastSpell(assignedSpellID, assignedSpellName)   -- (3.0.9.17: its picked rank)
 						btn:SetAttribute("spell2", assignedSpellName)
 					else
 						btn:SetAttribute("type2", "spell")
@@ -10547,8 +10598,12 @@ function ShamanPower:AddMissingFlyoutButtons()
 			local missing = false
 			for _, btn in ipairs(flyout.allButtons or {}) do
 				have[btn.totemIndex] = true
-				if not self:IsOff() and SPCompat.HasTotemCastAliases(btn.spellID)
-					and btn:GetAttribute("mySpell") ~= SPCompat.TotemCastName(btn.spellID) then
+				-- (3.0.9.17) or a picked rank's cast that changed: one picked, one learned under it, or one let go
+				-- (the button still carries the old rank's text where the plain name is wanted now)
+				local my = btn:GetAttribute("mySpell")
+				if not self:IsOff() and (SPCompat.HasTotemCastAliases(btn.spellID) or SPCompat.TotemPickedRank(btn.spellID)
+						or (my and my ~= SPCompat.SpellName(btn.spellID)))
+					and my ~= SPCompat.TotemCastSpell(btn.spellID) then
 					missing = true -- refresh secure cast/assign actions after learning a renamed rank
 				end
 			end
@@ -16346,8 +16401,8 @@ function ShamanPower:UpdateMiniTotemBar()
 				-- Left-click: cast totem (or castsequence for Air totem twisting)
 				if element == 4 and self.opt.enableTotemTwisting then
 					-- Air totem with twisting: use castsequence macro
-					local wfName = GetSpellInfo(8512) or "Windfury Totem"
-					local twistName = self:GetTwistTotemName()
+					local wfName = SPCompat.TotemCastSpell(8512, "Windfury Totem")   -- (3.0.9.17: each one's picked rank)
+					local twistName = self:GetTwistTotemCast()
 					totemButton:SetAttribute("type1", "macro")
 					totemButton:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
 					-- Update icon to Windfury
@@ -16357,7 +16412,7 @@ function ShamanPower:UpdateMiniTotemBar()
 					end
 				elseif spellName then
 					totemButton:SetAttribute("type1", "spell")
-					totemButton:SetAttribute("spell1", spellName)
+					totemButton:SetAttribute("spell1", SPCompat.TotemCastSpell(spellID, spellName))   -- (3.0.9.17) its picked rank
 				end
 
 				-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
@@ -16378,9 +16433,7 @@ function ShamanPower:UpdateMiniTotemBar()
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
 					if assignedSpellName then
 						totemButton:SetAttribute("type2", "spell")
-						if SPCompat.HasTotemCastAliases(assignedSpellID) then
-							assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
-						end
+						assignedSpellName = SPCompat.TotemCastSpell(assignedSpellID, assignedSpellName)   -- (3.0.9.17: its picked rank)
 						totemButton:SetAttribute("spell2", assignedSpellName)
 					else
 						-- No assigned totem, fall back to Totemic Call
@@ -16692,8 +16745,8 @@ function ShamanPower:TotemBarTooltip(button, element)
 
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	if spellID then
-		-- the spell's own tooltip, as the flyout's buttons show it, with the clicks under it
-		GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(spellID) or spellID)
+		-- the spell's own tooltip, as the flyout's buttons show it, with the clicks under it (3.0.9.17: its picked rank)
+		GameTooltip:SetSpellByID(SPCompat.TotemTooltipID(spellID) or spellID)
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast totem", 0.7, 0.7, 0.7)
 		-- The other click depends on options (Totem Rows: this element's choices are its row,
@@ -18253,7 +18306,7 @@ function ShamanPower:UpdateDropAllButton()
 					if spellName then
 						local icon = self:GetTotemIcon(element, totemIndex)
 						table.insert(newSequence, {element = element, spellName = spellName, icon = icon, spellID = spellID})
-						table.insert(totemSpells, spellName)
+						table.insert(totemSpells, SPCompat.TotemCastSpell(spellID, spellName))   -- (3.0.9.17) its picked rank
 					end
 				end
 			end
@@ -19226,7 +19279,7 @@ function ShamanPower:RefreshAliasedTotemCasts()
 		for key, frame in pairs(self.poppedOutFrames) do
 			if frame.button and frame.totemIndex and SPCompat.HasTotemCastAliases(frame.spellID) then
 				frame.spellName = SPCompat.TotemCastName(frame.spellID)
-				frame.button:SetAttribute("spell1", frame.spellName)
+				frame.button:SetAttribute("spell1", SPCompat.TotemCastSpell(frame.spellID, frame.spellName))
 				local progress = self.poppedOutProgressBars and self.poppedOutProgressBars[key]
 				if progress then progress.spellName = frame.spellName end
 				local overlay = self.poppedOutOverlays and self.poppedOutOverlays[key]
@@ -19250,6 +19303,13 @@ function ShamanPower:SPELLS_CHANGED()
 		ShamanPower:RecreateTotemFlyouts()
 		ShamanPower:EnsureElementAssignments()   -- an element's first totem gets assigned by itself
 		ShamanPower:RefreshAliasedTotemCasts()
+		-- (3.0.9.17) a rank learned can change what a picked rank casts: Drop All and the macros follow
+		-- (the flyouts were just rebuilt, the bar follows UpdateLayout below)
+		if type(ShamanPower.opt and ShamanPower.opt.totemRank) == "table" then
+			ShamanPower:UpdateDropAllButton()
+			ShamanPower:UpdateSPMacros()
+			if ShamanPower.QuickTotemsChanged then ShamanPower:QuickTotemsChanged() end
+		end
 	end
 	-- a newly learned imbue or shield: rebuild the cooldown bar so its flyouts offer it.
 	-- Spells are learned out of combat; a fight's SPELLS_CHANGED (forms, procs) is
@@ -21340,14 +21400,14 @@ function ShamanPower:UpdateSPMacros()
 
 		-- Special handling for Air totem when twisting is enabled
 		if element == 4 and self.opt.enableTotemTwisting then
-			local wfName = GetSpellInfo(8512) or "Windfury Totem"  -- Windfury Totem
-			local twistName = self:GetTwistTotemName()
+			-- (3.0.9.17) each totem at its picked rank, here and below
+			local wfName = SPCompat.TotemCastSpell(8512, "Windfury Totem")  -- Windfury Totem
+			local twistName = self:GetTwistTotemCast()
 			body = "#showtooltip\n/castsequence reset=combat/15 " .. wfName .. ", " .. twistName
 		elseif totemIndex > 0 then
 			local spellID = self:GetTotemSpell(element, totemIndex)
 			if spellID then
-				local spellName = GetSpellInfo(spellID)
-				if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
+				local spellName = SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID))
 				if spellName then
 					body = body .. spellName
 				else
@@ -21380,8 +21440,7 @@ function ShamanPower:UpdateSPMacros()
 			if totemIndex > 0 then
 				local spellID = self:GetTotemSpell(element, totemIndex)
 				if spellID then
-					local spellName = GetSpellInfo(spellID)
-					if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
+					local spellName = SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID))
 					if spellName then
 						table.insert(totemSpells, spellName)
 					end

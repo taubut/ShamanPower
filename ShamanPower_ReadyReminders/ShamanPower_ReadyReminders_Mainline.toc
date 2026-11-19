@@ -12,3 +12,4 @@
 ShamanPower_ReadyReminders.lua
 ShamanPower_ReadyStacks.lua
 ShamanPower_ReadyProcs.lua
+ShamanPower_ReadyShield.lua

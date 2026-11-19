@@ -364,6 +364,10 @@ local NAV = {
 			{ label = "Party Strip", preview = "partystrip", paths = { P("fluffy", "partystrip_section") }, power = true },
 		}},
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
+		-- (3.0.9.17, A117) WoW: Forever only (the page exists only there): ShamanPower_HealingTracker, shown as
+		-- Frame Buff Indicators (the owner's name, 11-18)
+		{ label = "Frame Buff Indicators", shamanOnly = true, path = P("fluffy", "healingtracker_section"),
+			onReset = function() local sp = SP() if sp and sp.HealingTrackerResetPage then sp:HealingTrackerResetPage() end end },
 		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
 	}},
 	{ group = "Alerts & Reminders", power = true, entries = {
@@ -390,6 +394,8 @@ local NAV = {
 			path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
+		-- (3.0.9.17, A111) WoW: Forever only (the page exists only there): ShamanPower_WindfuryProc
+		{ label = "Windfury Proc", preview = "windfury", shamanOnly = true, path = P("fluffy", "windfuryproc_section") },
 	}},
 	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },

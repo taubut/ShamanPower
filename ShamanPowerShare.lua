@@ -26,6 +26,8 @@ local EXTRA_SVARS = {
 	"ShamanPower_Assignments",
 	"ShamanPower_EarthShieldAssignments",
 	"ShamanPower_TwistAssignments",
+	"ShamanPowerWindfuryProcDB",      -- Windfury Proc (3.0.9.17, WoW: Forever)
+	"ShamanPowerHealingTrackerDB",    -- Frame Buff Indicators (3.0.9.17, WoW: Forever)
 }
 
 -- Setup-preset scope: everything that defines the look/feel/positions, but NOT
@@ -41,6 +43,8 @@ local PRESET_SVARS = {
 	"ShamanPowerExpiringAlertsDB",    -- expiring-alerts settings + position
 	"ShamanPower_ReadyReminders",     -- which reminders, look + positions
 	"ShamanPower_TargetTracker",      -- each spell's look and when, rules, positions
+	"ShamanPowerWindfuryProcDB",      -- Windfury Proc's settings + position (3.0.9.17)
+	"ShamanPowerHealingTrackerDB",    -- Frame Buff Indicators' looks and spots on the frames (3.0.9.17)
 }
 -- The tables an import may write (a string names them itself, so it is checked
 -- against this list: a tampered string must not replace any other global).
@@ -483,7 +487,7 @@ do
 			"UpdateCooldownBarProgressBars", "UpdateCooldownBarOpacity", "UpdateCooldownBarFlyoutEnabled",
 			"UpdateTotemBarFrame", "UpdateMiniTotemBar", "UpdateReactiveTotemAppearance", "UpdateTremorReminderAppearance",
 			"UpdateAllReadyReminderAppearance", "UpdateReadyReminders", "TargetTrackerRefresh", "UpdateSPRangeFrame",
-			"UpdateSPRangeBorder", "UpdateLoadoutBar" }) do
+			"UpdateSPRangeBorder", "UpdateLoadoutBar", "UpdateWindfuryProcAppearance", "UpdateHealingTrackerAppearance" }) do
 			if SP[fn] then pcall(SP[fn], SP) end
 		end
 		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
@@ -525,10 +529,35 @@ do
 		end
 	end
 	local ev = CreateFrame("Frame")
+
+	-- (3.0.9.17) Logging in: the profile in use brings its own whole setup back, as switching to it does. Before, each
+	-- table loaded as it was last saved: on Anniversary Ready Reminders and most modules' tables are the whole
+	-- account's, so another character's last setup came with them (and at logout was kept as this profile's). The
+	-- usual login (the same character, or a /reload) finds it just as it was left: nothing is touched then.
+	local function same(a, b)
+		if a == b then return true end
+		if type(a) ~= "table" or type(b) ~= "table" then return false end
+		for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+		for k in pairs(b) do if a[k] == nil then return false end end
+		return true
+	end
+	local function redrawNow()
+		if InCombatLockdown() then ev:RegisterEvent("PLAYER_REGEN_ENABLED") return end   -- (the bars can't move in a fight)
+		redraw(SP.db)
+	end
+	function SP:ProfileSetupLogin()
+		if not (SP.db and SP.db.global) then return end
+		local t = store()[SP.db:GetCurrentProfile()]
+		if type(t) ~= "table" or same(capture(), t) then return end
+		putBack(t)                    -- (before the modules build from their tables)
+		C_Timer.After(0, redrawNow)   -- and everything drawn from it again once they are all up
+	end
+
 	ev:RegisterEvent("PLAYER_LOGIN")
 	ev:RegisterEvent("PLAYER_LOGOUT")
 	ev:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_LOGIN" then install()
+		if event == "PLAYER_LOGIN" then install(); SP:ProfileSetupLogin()
+		elseif event == "PLAYER_REGEN_ENABLED" then ev:UnregisterEvent("PLAYER_REGEN_ENABLED"); redrawNow()
 		elseif SP.db and SP.db.spSetupWrapped then SP:KeepProfileSetup() end   -- (logging out, or a /reload)
 	end)
 	install()

@@ -38,7 +38,7 @@ ns.ListLook = ListLook
 local ROWS = {
 	readyIcons = true, ttIcons = true, stripTotems = true, cdbarIcons = true, shieldIcons = true, loadoutIcons = true,
 	tbButtons = true, tbTotems = true, eaIcons = true, rtIcons = true, coverageIcons = true, rangeIcons = true,
-	popoutIcons = true, raidIcons = true,
+	popoutIcons = true, raidIcons = true, healingIcons = true,
 }
 
 local CARD_GAP = 12      -- between the cards (Window.lua's CARD_GAP)

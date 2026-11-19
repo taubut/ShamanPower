@@ -1,0 +1,12 @@
+## Interface: 120100, 16001
+## Author: taubut
+## Title: |cff0070ddShamanPower|r |cffffd200[Windfury Proc]|r
+## Version: 3.0.9.16
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: An alert on your screen each time Windfury procs on you.
+## Dependencies: ShamanPower
+## LoadOnDemand: 0
+## DefaultState: enabled
+## SavedVariables: ShamanPowerWindfuryProcDB
+
+ShamanPower_WindfuryProc.lua

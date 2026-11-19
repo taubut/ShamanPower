@@ -98,16 +98,15 @@ end
 -- ---------------------------------------------------------------------------
 -- The buttons
 -- ---------------------------------------------------------------------------
+-- (3.0.9.17) its picked rank (Rank in the totem's right-click menu), as the bar casts it
 local function spellNameOf(spellID)
-	local name = spellID and GetSpellInfo(spellID)
-	if spellID and SPCompat.HasTotemCastAliases and SPCompat.HasTotemCastAliases(spellID) then name = SPCompat.TotemCastName(spellID) end
-	return name
+	return spellID and SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID)) or nil
 end
 
 local function onEnter(self)
 	if not (SP.opt and SP.opt.ShowTooltips) or not self.spellID then return end
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(self.spellID) or self.spellID)
+	GameTooltip:SetSpellByID(SPCompat.TotemTooltipID(self.spellID) or self.spellID)
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("|cff00ff00Click:|r Drop this totem (Quick Totem " .. (self.spSlot or 1) .. ")", 1, 1, 1)
 	GameTooltip:Show()
@@ -180,8 +179,14 @@ local function make(element, slot)
 	keyText:Hide()
 	q.keybindText = keyText
 
-	q:SetScript("OnEnter", onEnter)
-	q:SetScript("OnLeave", onLeave)
+	-- (3.0.9.17, a Discord report: flyouts stuck out) hooked, never set: SetScript wiped the template's own OnEnter /
+	-- OnLeave, the ones that run the _onleave below, so a flyout the mouse left by way of a quick totem stayed open
+	-- (the button keeps it open while a quick totem is under the mouse). As every flyout button does.
+	if not q.spTipHooked then
+		q.spTipHooked = true   -- (a hook-once marker: a remade button keeps its hooks)
+		q:HookScript("OnEnter", onEnter)
+		q:HookScript("OnLeave", onLeave)
+	end
 	-- the hover flyout closes when the mouse leaves a quick totem for anywhere but its button or the flyout
 	-- (hover flyouts only: arrows and keys open them in box mode)
 	if SP.SECURE_ONLEAVE_PARENT and not SP:FlyoutBoxMode() then SP:SetSnippet(q, "_onleave", SP.SECURE_ONLEAVE_PARENT) end
@@ -526,7 +531,8 @@ function QT.Keys()
 		local text
 		if on and q.spOn then
 			local own = GetBindingKey("CLICK " .. q:GetName() .. ":LeftButton")
-			local name = q.spellID and spellNameOf(q.spellID)
+			-- (the plain name, never a picked rank's text: it finds the spell on your action bars)
+			local name = q.spellID and (SPCompat.HasTotemCastAliases(q.spellID) and SPCompat.TotemCastName(q.spellID) or GetSpellInfo(q.spellID))
 			local bar = name and mode ~= "sponly" and SP.GetKeybindForSpell and SP:GetKeybindForSpell(name) or nil
 			local short = SP.ShortKeybindText
 			own = own and short and short(own) or own

@@ -432,8 +432,7 @@ local function ListTotems(e, out)
 	if not totems then return out end
 	local on = SP.opt and SP.opt.flyoutTotems
 	for idx, spellID in pairs(totems) do
-		local cast = GetSpellInfo(spellID)
-		if SPCompat.HasTotemCastAliases(spellID) then cast = SPCompat.TotemCastName(spellID) end
+		local cast = SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID))   -- (3.0.9.17: its picked rank)
 		local enabled = on == nil or on[ELEMENT_KEY[e] .. "_" .. idx] ~= false
 		if cast and enabled and SP.PlayerKnowsTotem and SP.PlayerKnowsTotem(spellID) then out[#out + 1] = idx end
 	end
@@ -461,8 +460,8 @@ function P:FillLists()
 		end
 		for k, idx in ipairs(list) do
 			local spellID = SP.Totems[e][idx]
-			local cast = GetSpellInfo(spellID)
-			if SPCompat.HasTotemCastAliases(spellID) then cast = SPCompat.TotemCastName(spellID) end
+			-- (3.0.9.17) its picked rank: the same text as the totem button's spell1, which sp-spell is compared with
+			local cast = SPCompat.TotemCastSpell(spellID, GetSpellInfo(spellID))
 			local b = self:Button(e, idx)
 			b:SetAttribute("type", "macro")
 			b:SetAttribute("macrotext", "/cast " .. cast .. "\n/click " .. KEYS_NAME .. " Done")

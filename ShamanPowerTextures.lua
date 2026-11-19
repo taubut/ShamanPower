@@ -856,7 +856,10 @@ local function lift(v) v = v * 1.6 + 0.15; if v > 1 then return 1 end return v e
 local function drawEdge(frame, kind)
 	local e = frame.spEdge
 	if not kind or not frame.backdropInfo then
-		if e and e:IsShown() then e:Hide() end
+		-- (3.0.9.17) never asked whether it shows: inside the game's aura buttons (Totem Coverage's green border copy,
+		-- PaintFrameEdgeOnce) WoW: Forever answers that with a secret, and testing it was an error (a profile switch
+		-- to one with no Frame Edges repaints it)
+		if e then e:Hide() end
 		return
 	end
 	if not e then
@@ -866,7 +869,11 @@ local function drawEdge(frame, kind)
 		for i = 1, 4 do e.bevel[i] = e:CreateTexture(nil, "BORDER") end
 		frame.spEdge = e
 	end
-	e:SetFrameLevel(math.max(0, frame:GetFrameLevel() - 1))   -- under the frame's own backdrop
+	-- under the frame's own backdrop. (3.0.9.17) What is read back from the frame may be a secret inside the game's aura
+	-- buttons on WoW: Forever (as its shown state is): then the level stays and the edge takes the default color
+	local lv = frame:GetFrameLevel()
+	if issecretvalue and issecretvalue(lv) then lv = nil end
+	if lv then e:SetFrameLevel(math.max(0, lv - 1)) end
 	local tl, br = frame.TopLeftCorner or frame, frame.BottomRightCorner or frame
 	local o, dx, dy = 2, 0, 0
 	if kind == "shadow" then o, dx, dy = 5, 2, -2 elseif kind == "thick" then o = 3 end
@@ -874,6 +881,7 @@ local function drawEdge(frame, kind)
 	e:SetPoint("TOPLEFT", tl, "TOPLEFT", -o + dx, o + dy)
 	e:SetPoint("BOTTOMRIGHT", br, "BOTTOMRIGHT", o + dx, -o + dy)
 	local r, g, b, a = frame:GetBackdropBorderColor()
+	if issecretvalue and (issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(a)) then r, g, b, a = nil, nil, nil, nil end
 	r, g, b, a = r or 0.3, g or 0.3, b or 0.3, a or 1
 	local B = e.bevel
 	if kind == "bevel" then
@@ -904,6 +912,7 @@ paintFrameOutline = function(frame)
 	if not frame.backdropInfo or not frame.TopEdge then return end
 	local kind = SP.opt and SP.opt.outlineGradient
 	local r, g, b, a = frame:GetBackdropBorderColor()
+	if issecretvalue and (issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(a)) then r, g, b, a = nil, nil, nil, nil end   -- (3.0.9.17, as in drawEdge)
 	r, g, b, a = r or 1, g or 1, b or 1, a or 1
 	if kind then
 		SP:PaintOutlineEdges(frame.TopEdge, frame.BottomEdge, frame.LeftEdge, frame.RightEdge, r, g, b, a)

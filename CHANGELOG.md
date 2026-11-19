@@ -1,5 +1,30 @@
 # ShamanPower Changelog
 
+## v3.0.9.17 (in progress)
+
+### After updating
+- After updating, fully close and restart the game once: 3.0.9.17 adds new files, and a /reload alone does not load them.
+
+### New
+- **Totem Rank:** pick the rank a totem drops at. Right-click a totem on Totem Bar > Bar and pick its Rank, for example Rank 1 of Searing Totem or Windfury Totem to save mana. Every way ShamanPower drops that totem uses it: the bar, its flyout, Drop All, Quick Totems, Totem Sets and the SP_ macros. Highest (the default) always drops your highest rank, and a rank you haven't learned yet drops the closest one below it that you have. Call of the Elements still drops your highest ranks. Each profile keeps its own.
+- **Windfury Proc (WoW: Forever):** a new module that shows when Windfury Weapon or Windfury Totem procs: that proc's icon for a moment, with its own glow and sound. Show Internal Cooldown (on by default) shows Windfury Weapon's 1.5-second internal cooldown on its icon, with a sweep, a bar and a countdown you can set up. Pick its font on Appearance > Fonts & Textures and move it in Unlock UI. Off until you turn it on in Alerts & Reminders > Windfury Proc.
+- **Frame Buff Indicators (WoW: Forever):** your Riptide and Ancestral Healing on WoW's own party and raid frames: the buff's icon, a sweep counting down and the time left. Each buff has its own size, spot and look in its icon's right-click menu, and Party Frames and Raid Frames each have a switch. Off until you turn it on in Group Tools > Frame Buff Indicators.
+- **Shield reminder:** a Shield reminder on the Ready Reminders Spells row. It shows while neither Lightning Shield nor Water Shield is on you, the way Weapon Imbue shows while an imbue is missing, so it can sit with your cooldowns as part of your rotation. Set its Show to Always to keep it on screen while a shield is on, with the shield's charges on it (Show Charge Count, Count Position and Show Charge Bar). Off until you click it.
+
+### Changes
+- **Shield Charges:** two new Show choices for Lightning Shield and Water Shield: Only When Missing, and In Combat, Only When Missing. The shield shows grayed out while it's gone and doesn't show at all while it's on you.
+
+### Fixes
+- **Ready Reminders:** a profile still didn't keep its own Ready Reminders layout. After a switch (or Profile by Spec switching for you), rows stayed where the last profile had them and kept its order, and logging in could bring back a layout another character saved. Each profile now keeps its whole layout: which reminders show, where each one sits, their sizes, the rows and the order.
+- **Call of the Elements (WoW: Forever):** it could drop Searing Totem and Windfury Totem at rank 1 when you'd set them up before learning a higher rank. It always drops your highest rank now, on all three Calls.
+- **Ready Reminders (WoW: Forever):** Maelstrom Weapon's sound at 5 stacks stopped after Shield Charges' setup reloaded your game (for example after you learned Water Shield), because the setup took Maelstrom Weapon out of ShamanPower's Cooldown Manager layout. It stays in now.
+- **Totem Bar:** a flyout could stay out after your mouse left the bar across your Quick Totems. It closes now.
+- **Ready Reminders and Reactive Totems:** right-clicking a reminder or an alert out of a fight opened its settings. A right-click only does that while you're placing them now (Move the Icons, Show All (Position) or Unlock UI).
+- **Frame Edges (WoW: Forever):** switching to a profile without Frame Edges could show an error ("attempt to perform boolean test on a secret boolean value"). It's gone.
+
+### Thanks
+- Thanks to Skadoosh, denko and a player on CurseForge for the ideas, and to Wootang, Rakii and riseandshine for the reports.
+
 ## v3.0.9.16 (2026-11-16)
 
 ### Changes

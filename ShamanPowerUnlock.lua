@@ -118,6 +118,9 @@ local MODULES = {
 		enabled = function() local d = DB("ShamanPower_ReactiveTotems"); return not d or d.enabled ~= false end },
 	{ key = "tremor", label = "Tremor Reminder", reset = "TremorReminderReset",
 		enabled = function() local d = DB("ShamanPowerTremorReminderDB"); return not d or d.enabled ~= false end },
+	-- (3.0.9.17) Windfury Proc, WoW: Forever (its module registers the preview only there); off until switched on
+	{ key = "windfury", label = "Windfury Proc", reset = "WindfuryProcReset",
+		enabled = function() local d = DB("ShamanPowerWindfuryProcDB"); return type(d) == "table" and d.enabled == true end },
 	{ key = "partyrange", label = "Party Range Counter",
 		enabled = function()
 			local rc = SP.opt.rangeCounter

@@ -28,6 +28,7 @@ ListLook.lua
 # IconScreen.lua -- the icon screens (sheet A30), held for 3.1.0
 CdbarIcons.lua
 ShieldIcons.lua
+HealingIcons.lua
 LoadoutIcons.lua
 TotemBarIcons.lua
 TrackerIcons.lua

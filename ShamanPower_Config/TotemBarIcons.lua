@@ -15,6 +15,7 @@
 -- No new saved keys: every value is today's setting (Show Earth Totem ..., Show Drop All
 -- Button, totemBarOrder, dropOrder and the Excludes, flyoutTotems, the pulse lists,
 -- (3.0.9.14: dropAllFirst, Drop All dragged to the start; quickTotemPicks, a totem's Quick Totem spot)
+-- (3.0.9.17: totemRank, the rank a totem is cast at: Rank in its menu, SP:SetTotemRank)
 -- usualTotemTemp, the Earth Shield flyout and its filter, the Blizzard Totem Sets
 -- switches) and Earth Shield's own Running Out slot (ShamanPowerCdItems.lua type 12).
 -- The pulse lists keep their old form: a totem turned Off turns its "Only Show ... for
@@ -400,6 +401,7 @@ local function TotemOwn(item)
 	if TempApplies(item.key) and TempOn(item.key) ~= TempDefault(item.key) then return true end
 	local own = SP.opt and type(SP.opt.totemOwn) == "table" and SP.opt.totemOwn[item.key]   -- (3.0.9.2) its own effects
 	if type(own) == "table" and next(own) ~= nil then return true end
+	if SP.TotemRankChoice and SP:TotemRankChoice(item.key) then return true end   -- (3.0.9.17) a rank picked
 	return false
 end
 
@@ -1139,6 +1141,56 @@ local function FlyoutBinding(item)
 	return "CLICK ShamanPowerFlyout" .. item.e .. "Btn" .. item.idx .. ":" .. cast
 end
 
+-- (3.0.9.17) Rank: the rank every place ShamanPower casts this totem uses (opt.totemRank, SP:SetTotemRank;
+-- a Discord ask: Windfury and Searing Totem at rank 1 to save mana). 0 = Highest, as always.
+local function TotemRanks(item)
+	local ranks = SPCompat and SPCompat.SpellRanks and SPCompat.SpellRanks(item.key)
+	return (ranks and #ranks > 1 and SP.SetTotemRank) and ranks or nil
+end
+local function RankOf(item) return (SP.TotemRankChoice and SP:TotemRankChoice(item.key)) or 0 end
+local function RankOwn(item) return RankOf(item) ~= 0 end
+local function RankTop(ranks)   -- the highest rank you know (0: none yet)
+	for n = #ranks, 1, -1 do
+		if SPCompat.KnowsExactSpellID and SPCompat.KnowsExactSpellID(ranks[n]) then return n end
+	end
+	return 0
+end
+local function SetRank(item, n)
+	SP:SetTotemRank(item.key, n)
+	if InCombatLockdown() then Say("The new rank is used once the fight ends.") end
+	return Changed(TotRow)
+end
+local function RankRow(item, ranks)
+	return {
+		text = "Rank",
+		tip = "The rank the bar, its flyout, Drop All, Quick Totems and the SP_ macros cast. A lower rank costs less mana."
+			.. " A rank you haven't learned yet casts the closest lower one you know.",
+		words = "cast a lower rank to save mana",
+		pic = { kind = "none" },
+		value = function()
+			local n = RankOf(item)
+			return n == 0 and "Highest" or ("Rank " .. n), n ~= 0
+		end,
+		sub = function()
+			local cur, top = RankOf(item), RankTop(ranks)
+			local items = {}
+			items[1] = { text = "Highest", selected = cur == 0,
+				value = function() return top > 0 and ("Rank " .. top) or "", false end,
+				tip = "The highest rank you know. A rank you learn later is used right away.",
+				onClick = function() return SetRank(item, 0) end }
+			items[2] = SEP
+			for n = 1, #ranks do
+				local learned = n <= top
+				items[#items + 1] = { text = "Rank " .. n, selected = cur == n,
+					value = (not learned) and function() return "not learned", false end or nil,
+					tip = (not learned) and "Not learned yet. Until it is, the closest lower rank you know is cast." or nil,
+					onClick = function() return SetRank(item, n) end }
+			end
+			return items
+		end,
+	}
+end
+
 local function TotemMenu(item)
 	local r = {}
 	local id = item.key
@@ -1168,6 +1220,9 @@ local function TotemMenu(item)
 				.. " element has two spots: a new pick takes the spot over." .. (off and (" |cffffa040Show Quick Totems (below on this"
 				.. " page) is off.|r") or ""), nil, { kind = "none" })
 		end
+		-- (3.0.9.17) its rank: only a totem with more than one rank in this game
+		local ranks = TotemRanks(item)
+		if ranks then r[#r + 1] = RankRow(item, ranks) end
 		r[#r + 1] = SEP
 	end
 	-- what it does
@@ -1274,12 +1329,14 @@ local function TotemMenu(item)
 	end
 	r[#r + 1] = { text = "Reset This Totem", disabled = not (TotemOwn(item) or TOwn(id) or not InFlyout(item)),
 		tip = "Back to how it came: in its flyout" .. (pk and ", Pulse Bar and Pulse Flash on" or "")
-			.. (TempApplies(id) and (", Counts As Temporary " .. (TempDefault(id) and "on" or "off")) or "") .. ".",
+			.. (TempApplies(id) and (", Counts As Temporary " .. (TempDefault(id) and "on" or "off")) or "")
+			.. (TotemRanks(item) and ", its highest rank" or "") .. ".",
 		onClick = function()
 			if not InFlyout(item) then SetInFlyout(item, true) end
 			if pk then SetPulseBar(pk, true); SetPulseFlash(pk, true) end
 			if TempApplies(id) then SetTemp(id, TempDefault(id)) end
 			if type(O().totemOwn) == "table" then O().totemOwn[id] = nil; FxApplied() end   -- (3.0.9.2) its own effects
+			if RankOwn(item) then SP:SetTotemRank(id, nil) end   -- (3.0.9.17) its highest rank again
 			TotRow:Changed(false)
 		end }
 	-- its test (3.0.9.2: was Totem Bar > Effects' Test button)
@@ -1866,6 +1923,8 @@ function SP.TotemBarResetPage(sp)
 	o.totemBarOrder = { 1, 2, 3, 4 }
 	o.dropAllFirst = nil     -- (3.0.9.14) Drop All back at the end of the bar
 	o.quickTotemPicks = nil  -- (3.0.9.14) no totem in a Quick Totem spot (their switches are this page's rows)
+	local ranked = o.totemRank ~= nil
+	o.totemRank = nil        -- (3.0.9.17) every totem at its highest rank again
 	o.dropOrder = { 1, 2, 3, 4 }
 	o.dropAllUsesTotemSets, o.totemSetsSyncAssignments, o.totemSetsAdoptFromBar = nil, nil, nil
 	for e = 1, 4 do if Excluded(e) and sp.SetDropAllExclude then sp:SetDropAllExclude(e, false) end end
@@ -1879,4 +1938,5 @@ function SP.TotemBarResetPage(sp)
 	for _, fn in ipairs({ "UpdateMiniTotemBar", "UpdateDropAllButton", "RecreateTotemFlyouts", "ApplyUsualTotemSettings", "QuickTotemsChanged" }) do
 		Run(fn)
 	end
+	if ranked then Run("RefreshTotemCasts") end   -- (the macros and the rest of the casts too)
 end
