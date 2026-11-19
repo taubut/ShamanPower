@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.17 (in progress)
+## v3.0.9.17 (2026-11-19)
 
 ### After updating
 - After updating, fully close and restart the game once: 3.0.9.17 adds new files, and a /reload alone does not load them.

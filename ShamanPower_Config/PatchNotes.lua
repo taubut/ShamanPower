@@ -10,7 +10,7 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.17",
-		date = "in progress",
+		date = "2026-11-19",
 		headline = "Totem ranks, Windfury Proc and Frame Buff Indicators",
 		new = {
 			{ h = "Totem Rank", icon = "Interface\\Icons\\Spell_Fire_SearingTotem",
